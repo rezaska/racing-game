@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Hill Racer</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #12161f;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #game {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    touch-action: none;
+  }
+  /* Touch controls: hidden unless the device has no hover (i.e. touch). */
+  .touch { display: none; }
+  @media (hover: none) {
+    .touch {
+      display: block;
+      position: fixed;
+      bottom: 24px;
+      width: 26vw;
+      height: 26vw;
+      max-width: 130px;
+      max-height: 130px;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.35);
+      background: rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.8);
+      font-size: 30px;
+      line-height: 1;
+      text-align: center;
+      padding: 0;
+    }
+    #btn-brake { left: 20px; }
+    #btn-gas   { right: 20px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <button class="touch" id="btn-brake" aria-label="Brake">&#9664;</button>
+  <button class="touch" id="btn-gas" aria-label="Accelerate">&#9654;</button>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
