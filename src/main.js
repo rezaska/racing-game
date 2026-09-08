@@ -77,6 +77,11 @@ function frame(now) {
 
   acc += ft;
   const held = input.poll();
+
+  // Any control leaves the title screen.
+  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) {
+    race.start();
+  }
   let steps = 0;
   while (acc >= CFG.DT && steps < 6) {
     race.step(CFG.DT, held);

@@ -117,12 +117,15 @@ export class Track {
     const n = this.segments.length;
     for (let i = 24; i < n - 24; i++) {
       const seg = this.segments[i];
-      if (i % 12 === 0) {
+      if (i % 11 === 0) {
         const side = rng() < 0.5 ? -1 : 1;
-        seg.sprites.push({ kind: 'palm', offset: side * (1.25 + rng() * 1.2) });
+        const kind = rng() < 0.55 ? 'palm' : 'tree';
+        seg.sprites.push({ kind, offset: side * (1.3 + rng() * 1.3) });
       }
-      if (i % 47 === 0) {
-        seg.sprites.push({ kind: 'sign', offset: rng() < 0.5 ? -1.35 : 1.35 });
+      if (i % 53 === 0) {
+        seg.sprites.push({ kind: 'billboard', offset: rng() < 0.5 ? -1.9 : 1.9 });
+      } else if (i % 31 === 0) {
+        seg.sprites.push({ kind: 'sign', offset: rng() < 0.5 ? -1.45 : 1.45 });
       }
     }
     this.segments[this.finishIndex].sprites.push({ kind: 'finish', offset: 0 });

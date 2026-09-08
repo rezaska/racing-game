@@ -21,6 +21,8 @@ export class Player {
     this.steer = 0;      // -1..1, for picking the sprite frame
     this.bounce = 0;
     this.offroad = false;
+    this.slip = 0;       // 0..1, how far past grip the tyres are
+    this.slipDir = 0;
     this.finished = false;
     this.finishTime = 0;
     this.place = 1;
@@ -52,6 +54,16 @@ export class Player {
       this.speed += BRAKE * dt;
     } else {
       this.speed += DECEL * dt;
+    }
+
+    // Drift: past the grip limit the car slides toward the outside of the bend.
+    // The slide is on top of the centrifugal term and is caught on the wheel.
+    const load = Math.abs(seg.curve) * pct;
+    const target = clamp((load - C.GRIP) / C.SLIP_RANGE, 0, 1);
+    this.slip += (target - this.slip) * (1 - Math.exp(-C.SLIP_RESPONSE * dt));
+    this.slipDir = -Math.sign(seg.curve);
+    if (this.slip > 0.01 && seg.curve !== 0) {
+      this.x += this.slipDir * this.slip * C.DRIFT_PUSH * dt;
     }
 
     this.offroad = Math.abs(this.x) > 1;

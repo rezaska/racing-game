@@ -11,8 +11,9 @@ const IDLE = { left: false, right: false, accel: false, brake: false };
 
 export class Race {
   constructor(seed, themeName = 'coast') {
-    this.sprites = buildSprites(mulberry32((seed ^ 0x1234abcd) >>> 0));
     this.themeName = themeName;
+    this.spriteSeed = (seed ^ 0x1234abcd) >>> 0;
+    this.sprites = buildSprites(mulberry32(this.spriteSeed), CFG.themes[themeName]);
     this.restart(seed);
   }
 
@@ -26,7 +27,8 @@ export class Race {
     this.player = new Player(this.track);
     this.traffic = new Traffic(this.track, seed, this.sprites.opponents.length);
     this.fieldSize = this.traffic.cars.length + 1;
-    this.state = 'countdown';
+    this.state = 'attract';
+    this.attractT = 0;
     this.countdown = CFG.race.COUNTDOWN;
     this.elapsed = 0;
     this.results = null;
@@ -36,6 +38,7 @@ export class Race {
 
   setTheme(name) {
     this.themeName = name;
+    this.sprites = buildSprites(mulberry32(this.spriteSeed), CFG.themes[name]);
     if (this.iw) this.resize(this.iw, this.ih);
   }
 
@@ -47,7 +50,35 @@ export class Race {
     this.bg = buildBackground(this.theme, iw, ih, mulberry32((this.seed ^ 0x51ed270b) >>> 0));
   }
 
+  // Leaves attract mode with a clean grid: the demo drive has moved the player
+  // and the traffic down the road, so both are rebuilt rather than raced from
+  // wherever the camera drifted to.
+  start() {
+    this.player = new Player(this.track);
+    this.traffic = new Traffic(this.track, this.seed, this.sprites.opponents.length);
+    this.elapsed = 0;
+    this.countdown = CFG.race.COUNTDOWN;
+    this.results = null;
+    this.bgOffset = 0;
+    this.state = 'countdown';
+  }
+
   step(dt, input) {
+    if (this.state === 'attract') {
+      // A slow demo cruise behind the title, looping back to the start.
+      this.attractT += dt;
+      const before = this.player.z;
+      this.player.speed = 3400;
+      this.player.z += this.player.speed * dt;
+      this.player.x = Math.sin(this.attractT * 0.45) * 0.4;
+      const seg = this.track.findSegment(this.player.z + PLAYER_Z);
+      this.player.segmentRef = seg;
+      this.bgOffset += seg.curve * ((this.player.z - before) / CFG.road.SEGMENT_LENGTH) * 12;
+      this.traffic.update(dt, this.player);
+      if (this.player.z > this.track.finishZ * 0.75) this.player.z = 0;
+      return;
+    }
+
     if (this.state === 'countdown') {
       this.countdown -= dt;
       this.player.segmentRef = this.track.findSegment(this.player.z + PLAYER_Z);

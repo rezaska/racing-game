@@ -16,7 +16,10 @@ export const CFG = {
     LANES: 3,
     DRAW_DISTANCE: 260,    // segments drawn ahead
     FIELD_OF_VIEW: 100,    // degrees
-    CAMERA_HEIGHT: 1000,
+    // Raising this looks further DOWN on the road. Player sprite scale is
+    // exactly 1 / CAMERA_HEIGHT, so car worldW in sprites.js is sized against
+    // it -- change one and the car changes size on screen.
+    CAMERA_HEIGHT: 1300,
     // How far ahead of the camera the player car sits. Derived from camera
     // height so the car stays put on screen if the camera moves.
     FOG_DENSITY: 5,
@@ -39,6 +42,15 @@ export const CFG = {
     // Contact with another car scuffs you down to this fraction of their speed.
     BUMP_SPEED_FACTOR: 0.5,
     BUMP_PUSH: 0.9,
+
+    // Drift. Cornering load is |curve| * speedPercent; past GRIP the tyres let
+    // go and the car slides toward the outside of the bend, which you catch on
+    // the steering. DRIFT_PUSH is how hard the slide shoves you, on top of the
+    // centrifugal term.
+    GRIP: 2.5,
+    SLIP_RANGE: 3.5,
+    DRIFT_PUSH: 0.55,
+    SLIP_RESPONSE: 6,
   },
 
   ai: {
@@ -86,6 +98,9 @@ export const CFG = {
       laneDouble: true,
       palms: true,
       stars: false,
+      skyline: false,
+      rail: ['#d8dce4', '#9aa2b0', '#6c7482'],
+      trees: ['#3fa845', '#2f8035'],
     },
     night: {
       name: 'night',
@@ -105,6 +120,11 @@ export const CFG = {
       laneDouble: false,
       palms: false,
       stars: true,
+      skyline: true,
+      rail: ['#8b93a4', '#5d6474', '#3d4352'],
+      trees: ['#16302a', '#0f231f'],
+      building: ['#1b2a52', '#16224a', '#212f5e'],
+      window: '#f2d98a',
     },
   },
 };

@@ -18,6 +18,7 @@ python3 -m http.server 8000
 
 | Action | Keys |
 | --- | --- |
+| Start / any control | leaves the title screen |
 | Steer | `←` `→` or `A` `D` |
 | Accelerate | `↑` / `W` / `Space` |
 | Brake | `↓` / `S` |
@@ -26,8 +27,10 @@ python3 -m http.server 8000
 
 You start at the back of a fifteen-car field. Centrifugal force pushes you to the
 outside of every bend, and past a certain speed no amount of steering will hold
-the corner — lifting off for the hard ones is the whole game. Two wheels on the
-grass caps you at a crawl, and rear-ending a slower car drops you to their speed.
+the corner — lifting off for the hard ones is the whole game. Push a bend harder
+than the tyres will take and the car breaks traction and slides wide, smoking,
+until you catch it. Two wheels on the grass caps you at a crawl, and rear-ending
+a slower car drops you to their speed.
 
 ## Tracks and themes
 
@@ -35,9 +38,10 @@ The course comes from a seed in the URL: `#seed=1234`. The same seed always
 builds the same course, so a track can be shared by copying the link. `R` picks a
 new one.
 
-Two themes render the same engine: `coast` (default) and `night`
-(`#seed=1234&theme=night`), toggled live with `T`. They differ only in palette
-and background layers.
+Two themes render the same engine: `coast` (default) — sea, palms, dithered blue
+sky — and `night` (`#seed=1234&theme=night`) — city skyline with lit windows,
+starfield, lamp posts. Toggle live with `T`. They differ only in palette,
+background layers and roadside props.
 
 ## Layout
 
@@ -74,6 +78,13 @@ the window aspect) and scaled up by a whole number with `image-rendering:
 pixelated`, so every pixel stays square. Sprites are drawn procedurally at 1px
 granularity rather than loaded as images.
 
+## Notes on the road furniture
+
+Guardrails are drawn per segment as a quad standing on the verge, in a second
+back-to-front pass **after** every road segment. Drawing them inline does not
+work: a rail extends upward into the band where farther segments are still to be
+drawn, so distant road paints straight over near rails.
+
 ## Notes on balance
 
 Steering authority and centrifugal drift both scale with steering speed, so it
@@ -86,3 +97,7 @@ speedPercent * curve * CENTRIFUGAL < 1
 which is why `CENTRIFUGAL` is the single most important number in `config.js`.
 Opponents shed speed in bends by the same logic; without that they rounded every
 corner flat out and could not be caught.
+
+Drift sits on top of that. Cornering load is `|curve| * speedPercent`; past
+`GRIP` the tyres let go and `DRIFT_PUSH` slides the car toward the outside of the
+bend, which you catch on the steering.
