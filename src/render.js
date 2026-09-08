@@ -1,398 +1,377 @@
 import { CFG } from './config.js';
-import { clamp, mulberry32 } from './mathx.js';
+import { project, CAMERA_DEPTH, PLAYER_Z } from './track.js';
+import { drawText, drawTextShadow, textWidth } from './pixelfont.js';
+import { clamp, lerp } from './mathx.js';
 
-const P = CFG.palette;
+export { PLAYER_Z };
 
-// Cached gradients/patterns. Building a CanvasGradient every frame is a real
-// cost, so these are rebuilt only on resize.
-let skyGrad = null;
-let dirtPattern = null;
+const R = CFG.road;
 
-function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, Math.abs(w) * 0.5, Math.abs(h) * 0.5);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-  ctx.lineTo(x + rr, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-  ctx.lineTo(x, y + rr);
-  ctx.quadraticCurveTo(x, y, x + rr, y);
-  ctx.closePath();
+// The vanishing point. As z grows, scale -> 0 and screen.y -> height/2, so the
+// horizon is always exactly half way down whatever the camera height.
+const horizonY = (ih) => Math.round(ih / 2);
+
+// --- background -----------------------------------------------------------
+
+const BAYER = [
+  [0, 8, 2, 10],
+  [12, 4, 14, 6],
+  [3, 11, 1, 9],
+  [15, 7, 13, 5],
+];
+
+function surface(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = false;
+  return { c, x };
 }
 
-export function buildCache(ctx, cam) {
-  skyGrad = ctx.createLinearGradient(0, 0, 0, cam.H);
-  skyGrad.addColorStop(0, P.skyTop);
-  skyGrad.addColorStop(1, P.skyBottom);
-
-  const off = document.createElement('canvas');
-  off.width = off.height = 64;
-  const o = off.getContext('2d');
-  o.fillStyle = P.dirt;
-  o.fillRect(0, 0, 64, 64);
-  const rng = mulberry32(0x51ed270b);
-  for (let i = 0; i < 90; i++) {
-    o.fillStyle = rng() < 0.5 ? 'rgba(0,0,0,0.10)' : 'rgba(255,255,255,0.05)';
-    o.beginPath();
-    o.arc(rng() * 64, rng() * 64, 0.8 + rng() * 2.2, 0, Math.PI * 2);
-    o.fill();
-  }
-  dirtPattern = ctx.createPattern(off, 'repeat');
-}
-
-export function drawSky(ctx, cam) {
-  cam.screenSpace(ctx);
-  ctx.fillStyle = skyGrad;
-  ctx.fillRect(0, 0, cam.W, cam.H);
-}
-
-export function drawParallax(ctx, cam, terrain) {
-  for (const layer of terrain.layers) {
-    cam.applyTransform(ctx, layer.parallax, layer.parallaxY);
-    const { left, right } = cam.visibleRange(layer.parallax, 120);
-    const i0 = clamp(Math.floor(left / layer.dx), 0, layer.n - 1);
-    const i1 = clamp(Math.ceil(right / layer.dx), 0, layer.n - 1);
-    if (i1 <= i0) continue;
-
-    const bottom = cam.y * layer.parallaxY + 3000;
-    // Extend past the generated range so the layer never shows a vertical cut
-    // at its own start/end.
-    ctx.beginPath();
-    ctx.moveTo(left, layer.h[i0]);
-    for (let i = i0; i <= i1; i++) ctx.lineTo(i * layer.dx, layer.h[i]);
-    ctx.lineTo(right, layer.h[i1]);
-    ctx.lineTo(right, bottom);
-    ctx.lineTo(left, bottom);
-    ctx.closePath();
-    ctx.fillStyle = layer.color;
-    ctx.fill();
-  }
-}
-
-export function drawTerrain(ctx, cam, terrain) {
-  cam.applyTransform(ctx, 1);
-  const { left, right } = cam.visibleRange(1, 80);
-  const dx = terrain.dx;
-  const h = terrain.h;
-  const i0 = clamp(Math.floor(left / dx), 0, terrain.n - 1);
-  const i1 = clamp(Math.ceil(right / dx), 0, terrain.n - 1);
-  if (i1 <= i0) return;
-
-  // Never emit more than roughly one point per 1.5 device pixels.
-  const stride = Math.max(1, Math.floor((i1 - i0) / (cam.W * 0.66)));
-  const bottom = cam.worldBottom() + 600;
-
-  // Run the surface out to the screen edges. Before x=0 and past the end of the
-  // track the heightmap has no samples, and stopping at i0/i1 left a hard
-  // vertical cut through the ground at the start line.
-  const trace = () => {
-    ctx.moveTo(left, h[i0]);
-    for (let i = i0; i <= i1; i += stride) ctx.lineTo(i * dx, h[i]);
-    ctx.lineTo(i1 * dx, h[i1]);
-    ctx.lineTo(right, h[i1]);
-  };
-
-  // Pass 1: the dirt body, as one closed polygon.
-  ctx.beginPath();
-  trace();
-  ctx.lineTo(right, bottom);
-  ctx.lineTo(left, bottom);
-  ctx.closePath();
-  ctx.fillStyle = dirtPattern || P.dirt;
-  ctx.fill();
-
-  // Pass 2: the grass cap, as a thick round-joined polyline over the same points.
-  ctx.beginPath();
-  trace();
-  ctx.lineWidth = 9 / cam.zoom;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = P.grass;
-  ctx.stroke();
-}
-
-export function drawDecorations(ctx, cam, terrain) {
-  cam.applyTransform(ctx, 1);
-  const { left, right } = cam.visibleRange(1, 120);
-  for (const d of terrain.decorations) {
-    if (d.x < left) continue;
-    if (d.x > right) break;
-    ctx.save();
-    ctx.translate(d.x, d.y);
-    ctx.scale(d.flip ? -d.scale : d.scale, d.scale);
-    if (d.kind === 'tree') {
-      ctx.fillStyle = '#6b4f31';
-      ctx.fillRect(-3, -26, 6, 26);
-      ctx.fillStyle = '#2f7a3f';
-      ctx.beginPath();
-      ctx.arc(0, -36, 17, 0, Math.PI * 2);
-      ctx.arc(-12, -26, 12, 0, Math.PI * 2);
-      ctx.arc(12, -27, 13, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#8a8f96';
-      ctx.beginPath();
-      ctx.moveTo(-14, 2);
-      ctx.lineTo(-6, -12);
-      ctx.lineTo(6, -14);
-      ctx.lineTo(14, 1);
-      ctx.closePath();
-      ctx.fill();
+// Ordered-dither between adjacent palette entries instead of a smooth gradient.
+// The visible cross-hatched banding is the whole look of a 16-bit sky.
+function ditherGradient(x, w, h, colors) {
+  const n = colors.length - 1;
+  for (let y = 0; y < h; y++) {
+    const u = (y / Math.max(1, h - 1)) * n;
+    const i = Math.min(n - 1, Math.floor(u));
+    const f = u - i;
+    for (let px = 0; px < w; px++) {
+      const t = (BAYER[y & 3][px & 3] + 0.5) / 16;
+      x.fillStyle = f > t ? colors[i + 1] : colors[i];
+      x.fillRect(px, y, 1, 1);
     }
-    ctx.restore();
   }
 }
 
-export function drawTrackObjects(ctx, cam, terrain) {
-  cam.applyTransform(ctx, 1);
-  const { left, right } = cam.visibleRange(1, 120);
+export function buildBackground(theme, iw, ih, rng) {
+  const W = iw * 2; // twice the screen so it can wrap horizontally
+  const hz = horizonY(ih);
 
-  for (const cp of terrain.checkpoints) {
-    if (cp.x < left || cp.x > right) continue;
-    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(cp.x, cp.y);
-    ctx.lineTo(cp.x, cp.y - 54);
-    ctx.stroke();
-    ctx.fillStyle = '#f0f0f0';
-    ctx.beginPath();
-    ctx.moveTo(cp.x, cp.y - 54);
-    ctx.lineTo(cp.x + 26, cp.y - 46);
-    ctx.lineTo(cp.x, cp.y - 38);
-    ctx.closePath();
-    ctx.fill();
+  const sky = surface(iw, ih);
+  ditherGradient(sky.x, iw, hz + 8, theme.sky);
+  if (theme.stars) {
+    sky.x.fillStyle = '#ffffff';
+    for (let i = 0; i < 90; i++) {
+      const sx = Math.floor(rng() * iw);
+      const sy = Math.floor(rng() * (hz - 20));
+      sky.x.fillRect(sx, sy, 1, 1);
+    }
   }
 
-  const fx = terrain.finishX;
-  if (fx > left && fx < right) {
-    const fy = terrain.heightAt(fx);
-    ctx.fillStyle = '#e8e8e8';
-    ctx.fillRect(fx - 4, fy - 150, 8, 150);
-    ctx.fillRect(fx + 96, fy - 150, 8, 150);
-    ctx.fillRect(fx - 4, fy - 158, 108, 22);
-    const sq = 11;
-    for (let r = 0; r < 2; r++) {
-      for (let c = 0; c < 10; c++) {
-        ctx.fillStyle = (r + c) % 2 ? '#1a1a1a' : '#f2f2f2';
-        ctx.fillRect(fx - 4 + c * sq, fy - 158 + r * sq, sq, sq);
+  // Clouds: soft blobs with a flat shaded underside.
+  const CH = 40;
+  const clouds = surface(W, CH);
+  for (let i = 0; i < 14; i++) {
+    const cx = rng() * W;
+    const cy = 8 + rng() * 18;
+    const r = 4 + rng() * 7;
+    for (let k = 0; k < 5; k++) {
+      const ox = cx + (k - 2) * r * 0.72;
+      const oy = cy + Math.abs(k - 2) * 1.6;
+      const rr = r * (1 - Math.abs(k - 2) * 0.16);
+      clouds.x.fillStyle = theme.cloudShade;
+      clouds.x.beginPath();
+      clouds.x.arc(ox, oy + 1.5, rr, 0, Math.PI * 2);
+      clouds.x.fill();
+      clouds.x.fillStyle = theme.cloud;
+      clouds.x.beginPath();
+      clouds.x.arc(ox, oy, rr, 0, Math.PI * 2);
+      clouds.x.fill();
+    }
+  }
+
+  // Horizon strip: sea, shoreline and distant hills, drawn bottom-aligned to
+  // the vanishing point so the road appears to meet it.
+  const SH = 52;
+  const strip = surface(W, SH);
+  const seaTop = 18;
+  strip.x.fillStyle = theme.sea;
+  strip.x.fillRect(0, seaTop, W, SH - seaTop);
+  strip.x.fillStyle = theme.seaLight;
+  for (let y = seaTop + 2; y < SH; y += 3) {
+    for (let px = Math.floor(rng() * 8); px < W; px += 6 + Math.floor(rng() * 10)) {
+      strip.x.fillRect(px, y, 2 + Math.floor(rng() * 3), 1);
+    }
+  }
+  strip.x.fillStyle = theme.seaFoam;
+  strip.x.fillRect(0, SH - 5, W, 2);
+  strip.x.fillStyle = theme.sand;
+  strip.x.fillRect(0, SH - 3, W, 3);
+
+  // Two silhouette ridges above the water.
+  for (const [color, amp, base, step] of [
+    [theme.hillFar, 9, seaTop + 9, 34],
+    [theme.hillNear, 6, seaTop + 15, 21],
+  ]) {
+    strip.x.fillStyle = color;
+    let prev = base;
+    for (let px = 0; px <= W; px += step) {
+      const next = base - Math.floor(rng() * amp);
+      for (let k = 0; k < step && px + k <= W; k++) {
+        const y = Math.round(lerp(prev, next, k / step));
+        strip.x.fillRect(px + k, y, 1, SH - y);
+      }
+      prev = next;
+    }
+  }
+
+  return { sky: sky.c, clouds: clouds.c, strip: strip.c, W, CH, SH, hz };
+}
+
+function tile(ctx, img, w, offsetX, y) {
+  const ox = -((offsetX % w) + w) % w;
+  ctx.drawImage(img, Math.round(ox), Math.round(y));
+  ctx.drawImage(img, Math.round(ox + w), Math.round(y));
+}
+
+export function drawBackground(ctx, bg, iw, ih, offsetX, playerY) {
+  // A little vertical drift with elevation fakes the pitch the projection does
+  // not model.
+  const lift = clamp(playerY * 0.0008, -14, 14);
+  ctx.drawImage(bg.sky, 0, Math.round(lift * 0.3));
+  ctx.fillStyle = ctx.fillStyle;
+  tile(ctx, bg.clouds, bg.W, offsetX * 0.5, bg.hz - bg.SH - bg.CH * 0.55 + lift * 0.5);
+  tile(ctx, bg.strip, bg.W, offsetX, bg.hz - bg.SH + 3 + lift);
+}
+
+// --- road -----------------------------------------------------------------
+
+function polygon(ctx, x1, y1, x2, y2, x3, y3, x4, y4, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.lineTo(x3, y3);
+  ctx.lineTo(x4, y4);
+  ctx.closePath();
+  ctx.fill();
+}
+
+const rumbleW = (w, lanes) => w / Math.max(6, 2 * lanes);
+const laneW = (w, lanes) => w / Math.max(32, 8 * lanes);
+
+function drawSegment(ctx, iw, seg, theme) {
+  const { p1, p2 } = seg;
+  const dark = seg.dark ? 1 : 0;
+  const grass = theme.grass[dark];
+  const rumble = theme.rumble[dark];
+  const road = theme.road[dark];
+
+  const r1 = rumbleW(p1.screen.w, R.LANES);
+  const r2 = rumbleW(p2.screen.w, R.LANES);
+
+  ctx.fillStyle = grass;
+  ctx.fillRect(0, p2.screen.y, iw, p1.screen.y - p2.screen.y);
+
+  polygon(ctx, p1.screen.x - p1.screen.w - r1, p1.screen.y, p1.screen.x - p1.screen.w, p1.screen.y,
+          p2.screen.x - p2.screen.w, p2.screen.y, p2.screen.x - p2.screen.w - r2, p2.screen.y, rumble);
+  polygon(ctx, p1.screen.x + p1.screen.w + r1, p1.screen.y, p1.screen.x + p1.screen.w, p1.screen.y,
+          p2.screen.x + p2.screen.w, p2.screen.y, p2.screen.x + p2.screen.w + r2, p2.screen.y, rumble);
+  polygon(ctx, p1.screen.x - p1.screen.w, p1.screen.y, p1.screen.x + p1.screen.w, p1.screen.y,
+          p2.screen.x + p2.screen.w, p2.screen.y, p2.screen.x - p2.screen.w, p2.screen.y, road);
+
+  if (!seg.dark) {
+    const l1 = laneW(p1.screen.w, R.LANES);
+    const l2 = laneW(p2.screen.w, R.LANES);
+    if (theme.laneDouble) {
+      // Two solid centre lines, continuous rather than dashed.
+      for (const s of [-1, 1]) {
+        const o1 = s * l1 * 2.2;
+        const o2 = s * l2 * 2.2;
+        polygon(ctx, p1.screen.x + o1 - l1, p1.screen.y, p1.screen.x + o1 + l1, p1.screen.y,
+                p2.screen.x + o2 + l2, p2.screen.y, p2.screen.x + o2 - l2, p2.screen.y, theme.lane);
+      }
+    } else {
+      const lw1 = (p1.screen.w * 2) / R.LANES;
+      const lw2 = (p2.screen.w * 2) / R.LANES;
+      let lx1 = p1.screen.x - p1.screen.w + lw1;
+      let lx2 = p2.screen.x - p2.screen.w + lw2;
+      for (let lane = 1; lane < R.LANES; lane++) {
+        polygon(ctx, lx1 - l1, p1.screen.y, lx1 + l1, p1.screen.y,
+                lx2 + l2, p2.screen.y, lx2 - l2, p2.screen.y, theme.lane);
+        lx1 += lw1;
+        lx2 += lw2;
       }
     }
   }
+
+  // Distance haze. Cheap, and it stops the far road reading as a hard edge.
+  if (seg.fog < 1) {
+    ctx.globalAlpha = 1 - seg.fog;
+    ctx.fillStyle = theme.sky[theme.sky.length - 1];
+    ctx.fillRect(0, p2.screen.y, iw, p1.screen.y - p2.screen.y);
+    ctx.globalAlpha = 1;
+  }
 }
 
-export function drawVehicle(ctx, cam, car, alpha = 1) {
-  const C = CFG.car;
-  cam.applyTransform(ctx, 1);
-  ctx.globalAlpha = alpha;
+function drawSprite(ctx, iw, sprite, scale, roadX, roadY, offset, clipY, flip = false) {
+  const destW = sprite.worldW * scale * (iw / 2);
+  const destH = destW * (sprite.h / sprite.w);
+  if (destW < 0.6 || destH < 0.6) return;
 
-  const ca = Math.cos(car.angle);
-  const sa = Math.sin(car.angle);
+  const destX = Math.round(roadX + offset - destW / 2);
+  const destY = Math.round(roadY - destH);
+  const clipH = clipY ? Math.max(0, destY + destH - clipY) : 0;
+  if (clipH >= destH) return;
 
-  // Struts first (they read as being behind the body), then the chassis, then
-  // the wheels ON TOP. The wheel centre sits ~4px below the chassis centre and
-  // the body is 32 tall, so drawing wheels first hid all but a 5px sliver.
-  ctx.strokeStyle = 'rgba(30,30,30,0.85)';
-  ctx.lineWidth = 5;
-  for (const w of car.wheels) {
-    ctx.beginPath();
-    ctx.moveTo(car.x + w.local.x * ca - w.local.y * sa,
-               car.y + w.local.x * sa + w.local.y * ca);
-    ctx.lineTo(w.worldX, w.worldY);
-    ctx.stroke();
-  }
-
+  const srcH = sprite.h - (sprite.h * clipH) / destH;
   ctx.save();
-  ctx.translate(car.x, car.y);
-  ctx.rotate(car.angle);
-
-  ctx.fillStyle = car.color;
-  roundRect(ctx, -C.bodyW / 2, -C.bodyH / 2, C.bodyW, C.bodyH, 9);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // Cabin
-  ctx.fillStyle = car.color;
-  roundRect(ctx, -8, -C.bodyH / 2 - 20, 48, 22, 7);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = 'rgba(180,225,255,0.85)';
-  roundRect(ctx, 0, -C.bodyH / 2 - 16, 27, 13, 4);
-  ctx.fill();
-
-  // Driver head, drawn exactly at the head-collision point so the fail state is
-  // legible.
-  ctx.fillStyle = car.crashed ? '#e0483a' : '#f0c9a0';
-  ctx.beginPath();
-  ctx.arc(C.headLocal.x, C.headLocal.y, 8, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  if (flip) {
+    ctx.translate(destX + destW, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sprite.canvas, 0, 0, sprite.w, srcH, 0, destY, Math.round(destW), Math.round(destH - clipH));
+  } else {
+    ctx.drawImage(sprite.canvas, 0, 0, sprite.w, srcH, destX, destY, Math.round(destW), Math.round(destH - clipH));
+  }
   ctx.restore();
+}
 
-  // Wheels last, at their real compressed world positions -- that is what makes
-  // the suspension readable.
-  for (const w of car.wheels) {
-    ctx.save();
-    ctx.translate(w.worldX, w.worldY);
-    ctx.rotate(w.spin);
-    ctx.fillStyle = '#232323';
-    ctx.beginPath();
-    ctx.arc(0, 0, C.RADIUS, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#c9ccd1';
-    ctx.beginPath();
-    ctx.arc(0, 0, C.RADIUS * 0.44, 0, Math.PI * 2);
-    ctx.fill();
-    // Spokes: these are what make speed readable.
-    ctx.strokeStyle = '#c9ccd1';
-    ctx.lineWidth = 2.5;
-    for (let k = 0; k < 4; k++) {
-      const a = (k / 4) * Math.PI * 2;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(Math.cos(a) * C.RADIUS * 0.8, Math.sin(a) * C.RADIUS * 0.8);
-      ctx.stroke();
+// Draws the road and everything standing on it. Returns the camera-space data
+// the player sprite needs so it is not computed twice.
+export function renderRoad(ctx, iw, ih, track, player, theme, sprites) {
+  const base = track.findSegment(player.z);
+  const basePercent = (player.z % R.SEGMENT_LENGTH) / R.SEGMENT_LENGTH;
+  const playerSeg = track.findSegment(player.z + PLAYER_Z);
+  const playerPercent = ((player.z + PLAYER_Z) % R.SEGMENT_LENGTH) / R.SEGMENT_LENGTH;
+  const playerY = lerp(playerSeg.p1.world.y, playerSeg.p2.world.y, playerPercent);
+
+  let maxy = ih;
+  let x = 0;
+  let dx = -(base.curve * basePercent);
+  const drawn = [];
+
+  for (let n = 0; n < R.DRAW_DISTANCE; n++) {
+    const seg = track.segments[base.index + n];
+    if (!seg) break;
+    seg.fog = 1 / Math.exp(((n / R.DRAW_DISTANCE) ** 2) * R.FOG_DENSITY);
+    seg.clip = maxy;
+
+    project(seg.p1, player.x * R.WIDTH - x, playerY + R.CAMERA_HEIGHT, player.z, CAMERA_DEPTH, iw, ih, R.WIDTH);
+    project(seg.p2, player.x * R.WIDTH - x - dx, playerY + R.CAMERA_HEIGHT, player.z, CAMERA_DEPTH, iw, ih, R.WIDTH);
+
+    x += dx;
+    dx += seg.curve;
+
+    // Behind the camera, back-facing, or hidden behind a crest already drawn.
+    if (seg.p1.camera.z <= CAMERA_DEPTH || seg.p2.screen.y >= seg.p1.screen.y || seg.p2.screen.y >= maxy) {
+      continue;
     }
-    ctx.restore();
+    drawSegment(ctx, iw, seg, theme);
+    drawn.push(seg);
+    maxy = seg.p2.screen.y;
   }
 
-  ctx.globalAlpha = 1;
+  // Sprites and cars back to front, so nearer things overlap farther ones.
+  for (let i = drawn.length - 1; i >= 0; i--) {
+    const seg = drawn[i];
+    const sc = seg.p1.screen;
+    for (const s of seg.sprites) {
+      let sp = null;
+      // Themes without palms get lamp posts, not a second sign on every pole.
+      if (s.kind === 'palm') {
+        sp = theme.palms ? sprites.palms[seg.index % sprites.palms.length] : sprites.lamp;
+      }
+      else if (s.kind === 'sign') sp = sprites.sign;
+      else if (s.kind === 'finish') sp = sprites.finish;
+      if (!sp) continue;
+      drawSprite(ctx, iw, sp, sc.scale, sc.x, sc.y, sc.w * s.offset, seg.clip, s.offset < 0);
+    }
+    for (const car of seg.cars) {
+      drawSprite(ctx, iw, sprites.opponents[car.sprite], sc.scale, sc.x, sc.y, sc.w * car.offset, seg.clip);
+    }
+  }
+
+  return { playerY, playerSeg, playerPercent };
 }
 
-export function drawParticles(ctx, cam, particles) {
-  cam.applyTransform(ctx, 1);
-  for (const q of particles) {
-    const t = 1 - q.age / q.life;
-    ctx.fillStyle = `rgba(150,125,95,${0.45 * t})`;
-    ctx.beginPath();
-    ctx.arc(q.x, q.y, q.r * (0.6 + t * 0.8), 0, Math.PI * 2);
-    ctx.fill();
+// The projection puts the player sprite's base exactly on the bottom edge, so
+// lift it enough to leave road visible underneath.
+const PLAYER_LIFT = 14;
+
+export function drawPlayer(ctx, iw, ih, player, sprites, info) {
+  const scale = CAMERA_DEPTH / PLAYER_Z;
+  const camY = lerp(info.playerSeg.p1.camera.y ?? 0, info.playerSeg.p2.camera.y ?? 0, info.playerPercent);
+  const frame = player.steer < 0 ? 0 : player.steer > 0 ? 2 : 1;
+  const sprite = sprites.player[frame];
+
+  const destW = sprite.worldW * scale * (iw / 2);
+  const destH = destW * (sprite.h / sprite.w);
+  const x = Math.round(iw / 2 - destW / 2);
+  const y = Math.round(ih / 2 - (scale * camY * ih) / 2 - destH + player.bounce - PLAYER_LIFT);
+
+  // Tyre smoke when off road or under hard bumps.
+  if (player.offroad && player.speed > 800) {
+    ctx.fillStyle = 'rgba(230,225,215,0.75)';
+    const t = Math.floor(player.z / 40) % 3;
+    for (let i = 0; i < 4; i++) {
+      const r = 2 + ((i + t) % 3);
+      ctx.fillRect(x - 3 - i * 2, y + destH - 4 + ((i + t) % 2), r, r);
+      ctx.fillRect(x + destW + 1 + i * 2, y + destH - 4 + ((i + t + 1) % 2), r, r);
+    }
   }
+
+  ctx.drawImage(sprite.canvas, x, y, Math.round(destW), Math.round(destH));
 }
+
+// --- HUD ------------------------------------------------------------------
 
 function fmtTime(s) {
   const m = Math.floor(s / 60);
   const sec = s - m * 60;
-  return `${m}:${sec.toFixed(2).padStart(5, '0')}`;
+  return `${m}'${sec.toFixed(2).padStart(5, '0')}`;
 }
 
-export function drawHUD(ctx, cam, race) {
-  cam.screenSpace(ctx);
-  const car = race.player;
-  const W = cam.W;
+export function drawHUD(ctx, iw, ih, race) {
+  const p = race.player;
+  const W = '#ffffff';
+  const SH = '#101828';
 
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = 'rgba(15,20,28,0.55)';
-  roundRect(ctx, 14, 14, 214, 92, 10);
-  ctx.fill();
+  drawTextShadow(ctx, 'SPEED', 4, 4, '#8fd8ff', SH, 1);
+  const kph = `${Math.round(p.speed / 40)}`;
+  drawTextShadow(ctx, kph, 4, 13, W, SH, 2);
+  drawText(ctx, 'KM/H', 4 + textWidth(kph, 2) + 8, 20, '#8fd8ff', 1);
 
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 26px system-ui, sans-serif';
-  ctx.fillText(`${Math.round(Math.abs(car.vx) / 10)} km/h`, 28, 24);
+  drawTextShadow(ctx, 'TIME', iw - 4, 4, '#8fd8ff', SH, 1, 'right');
+  drawTextShadow(ctx, fmtTime(race.elapsed), iw - 4, 13, W, SH, 2, 'right');
 
-  ctx.font = '14px system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.8)';
-  const pct = clamp(car.distance / race.terrain.finishX, 0, 1);
-  ctx.fillText(`${(pct * 100).toFixed(1)}%  ·  P${race.playerPlace()}/${race.cars.length}`, 28, 58);
-  ctx.fillText(race.state === 'countdown' ? '0:00.00' : fmtTime(race.elapsed), 28, 78);
-
-  // Progress bar with a marker per car.
-  const barX = 250;
-  const barW = W - 270;
-  if (barW > 120) {
-    ctx.fillStyle = 'rgba(15,20,28,0.5)';
-    roundRect(ctx, barX, 26, barW, 12, 6);
-    ctx.fill();
-    for (const c of race.cars) {
-      const p = clamp(c.distance / race.terrain.finishX, 0, 1);
-      ctx.fillStyle = c.color;
-      ctx.beginPath();
-      ctx.arc(barX + 6 + p * (barW - 12), 32, c.isPlayer ? 7 : 5, 0, Math.PI * 2);
-      ctx.fill();
-      if (c.isPlayer) {
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-    }
-  }
+  drawTextShadow(ctx, `POS ${p.place}/${race.fieldSize}`, iw / 2, 4, '#f5c542', SH, 1, 'center');
+  const pct = clamp(p.z / race.track.finishZ, 0, 1);
+  drawText(ctx, `${Math.round(pct * 100)}%`, iw / 2, 13, '#ffffff', 1, 'center');
 
   if (race.state === 'countdown') {
-    const n = Math.ceil(race.countdown - 0.5);
+    const n = Math.ceil(race.countdown - 0.6);
     const label = n > 0 ? String(n) : 'GO!';
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 92px system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillText(label, W / 2 + 3, cam.H * 0.28 + 3);
-    ctx.fillStyle = n > 0 ? '#fff' : '#8fe36b';
-    ctx.fillText(label, W / 2, cam.H * 0.28);
-    ctx.textAlign = 'left';
-  }
-
-  if (car.crashed) {
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 44px system-ui, sans-serif';
-    ctx.fillStyle = '#ff6b5a';
-    ctx.fillText('CRASHED', W / 2, cam.H * 0.3);
-    ctx.textAlign = 'left';
+    drawTextShadow(ctx, label, iw / 2, ih * 0.34, n > 0 ? '#ffffff' : '#6ede5a', SH, 5, 'center');
   }
 
   if (race.state === 'finished' && race.results) {
-    const panelW = 340;
-    const panelH = 90 + race.results.length * 34;
-    const px = (W - panelW) / 2;
-    const py = (cam.H - panelH) / 2;
-    ctx.fillStyle = 'rgba(15,20,28,0.88)';
-    roundRect(ctx, px, py, panelW, panelH, 14);
-    ctx.fill();
-
-    ctx.textAlign = 'center';
-    ctx.font = 'bold 28px system-ui, sans-serif';
-    ctx.fillStyle = '#fff';
-    ctx.fillText('FINISH', W / 2, py + 18);
-
-    ctx.textAlign = 'left';
-    ctx.font = '16px system-ui, sans-serif';
-    race.results.forEach((r, i) => {
-      const y = py + 62 + i * 34;
-      ctx.fillStyle = r.color;
-      ctx.beginPath();
-      ctx.arc(px + 30, y + 8, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = r.isPlayer ? '#ffd964' : 'rgba(255,255,255,0.85)';
-      ctx.fillText(`${r.place}.  ${r.name}`, px + 48, y);
-      ctx.textAlign = 'right';
-      ctx.fillText(r.time !== null ? fmtTime(r.time) : `${(r.progress * 100).toFixed(0)}%`, px + panelW - 26, y);
-      ctx.textAlign = 'left';
+    const rows = race.results.slice(0, 6);
+    const boxW = 122;
+    const boxH = 22 + rows.length * 10;
+    const bx = Math.round(iw / 2 - boxW / 2);
+    const by = Math.round(ih / 2 - boxH / 2);
+    ctx.fillStyle = 'rgba(8,14,32,0.86)';
+    ctx.fillRect(bx, by, boxW, boxH);
+    ctx.fillStyle = '#f5c542';
+    ctx.fillRect(bx, by, boxW, 1);
+    ctx.fillRect(bx, by + boxH - 1, boxW, 1);
+    drawText(ctx, 'FINISH', iw / 2, by + 4, '#f5c542', 1, 'center');
+    rows.forEach((r, i) => {
+      const y = by + 15 + i * 10;
+      const col = r.isPlayer ? '#ffffff' : '#9fb0cc';
+      drawText(ctx, `${r.place}`, bx + 6, y, col, 1);
+      drawText(ctx, r.name, bx + 20, y, col, 1);
+      drawText(ctx, r.time !== null ? fmtTime(r.time) : '--', bx + boxW - 6, y, col, 1, 'right');
     });
-
-    ctx.textAlign = 'center';
-    ctx.font = '14px system-ui, sans-serif';
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillText('Press R for a new track', W / 2, py + panelH - 26);
-    ctx.textAlign = 'left';
+    drawText(ctx, 'PRESS R FOR A NEW RACE', iw / 2, by + boxH + 6, '#8fd8ff', 1, 'center');
   }
 }
 
-export function render(ctx, cam, race) {
-  drawSky(ctx, cam);
-  drawParallax(ctx, cam, race.terrain);
-  drawTerrain(ctx, cam, race.terrain);
-  drawDecorations(ctx, cam, race.terrain);
-  drawTrackObjects(ctx, cam, race.terrain);
-
-  // AI sorted by x so overlaps read consistently, player always last.
-  const ais = race.cars.filter((c) => !c.isPlayer).sort((a, b) => a.x - b.x);
-  for (const c of ais) drawVehicle(ctx, cam, c, 0.85);
-  drawVehicle(ctx, cam, race.player, 1);
-
-  drawParticles(ctx, cam, race.particles);
-  drawHUD(ctx, cam, race);
+// Player elevation, needed by the background before the road is drawn.
+export function playerElevation(track, player) {
+  const seg = track.findSegment(player.z + PLAYER_Z);
+  const pct = ((player.z + PLAYER_Z) % R.SEGMENT_LENGTH) / R.SEGMENT_LENGTH;
+  return lerp(seg.p1.world.y, seg.p2.world.y, pct);
 }

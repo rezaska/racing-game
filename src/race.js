@@ -1,132 +1,111 @@
 import { CFG } from './config.js';
-import { Terrain } from './terrain.js';
-import { Vehicle } from './vehicle.js';
-import { AIController } from './ai.js';
+import { Track } from './track.js';
+import { Player } from './player.js';
+import { Traffic } from './ai.js';
+import { buildSprites } from './sprites.js';
+import { buildBackground } from './render.js';
+import { PLAYER_Z } from './track.js';
+import { mulberry32 } from './mathx.js';
 
-const NO_INPUT = { throttle: 0, brake: 0 };
+const IDLE = { left: false, right: false, accel: false, brake: false };
 
 export class Race {
-  constructor(seed) {
+  constructor(seed, themeName = 'coast') {
+    this.sprites = buildSprites(mulberry32((seed ^ 0x1234abcd) >>> 0));
+    this.themeName = themeName;
     this.restart(seed);
+  }
+
+  get theme() {
+    return CFG.themes[this.themeName];
   }
 
   restart(seed) {
     this.seed = seed;
-    this.terrain = new Terrain(seed);
-
-    const startX = this.terrain.startX;
-    const sp = CFG.race.START_SPACING;
-
-    this.player = new Vehicle(this.terrain, startX, {
-      color: CFG.palette.playerColor,
-      name: 'You',
-      isPlayer: true,
-    });
-
-    this.ais = [];
-    for (let i = 0; i < CFG.ai.COUNT; i++) {
-      const p = CFG.ai.PERSONALITIES[i % CFG.ai.PERSONALITIES.length];
-      const car = new Vehicle(this.terrain, startX - sp * (i + 1), {
-        color: p.color,
-        name: p.name,
-      });
-      this.ais.push({ car, ctrl: new AIController(p, seed, i) });
-    }
-
-    this.cars = [this.player, ...this.ais.map((a) => a.car)];
-    this.particles = [];
+    this.track = new Track(seed);
+    this.player = new Player(this.track);
+    this.traffic = new Traffic(this.track, seed, this.sprites.opponents.length);
+    this.fieldSize = this.traffic.cars.length + 1;
     this.state = 'countdown';
     this.countdown = CFG.race.COUNTDOWN;
     this.elapsed = 0;
     this.results = null;
+    this.bgOffset = 0;
+    if (this.iw) this.resize(this.iw, this.ih);
   }
 
-  step(dt, playerInput) {
+  setTheme(name) {
+    this.themeName = name;
+    if (this.iw) this.resize(this.iw, this.ih);
+  }
+
+  // Backgrounds are pre-rendered at the current internal resolution, so they
+  // are rebuilt whenever that changes or the theme is swapped.
+  resize(iw, ih) {
+    this.iw = iw;
+    this.ih = ih;
+    this.bg = buildBackground(this.theme, iw, ih, mulberry32((this.seed ^ 0x51ed270b) >>> 0));
+  }
+
+  step(dt, input) {
     if (this.state === 'countdown') {
       this.countdown -= dt;
-      // Physics still runs so every car settles on its suspension before the
-      // flag drops.
-      for (const c of this.cars) c.step(dt, NO_INPUT);
+      this.player.segmentRef = this.track.findSegment(this.player.z + PLAYER_Z);
+      // Opponents hold station until the flag drops; letting them drive through
+      // the countdown hands them a free head start.
+      this.player.place = this.#place();
       if (this.countdown <= 0) this.state = 'racing';
-      this.#stepParticles(dt);
       return;
     }
 
-    this.elapsed += dt;
+    this.player.segmentRef = this.track.findSegment(this.player.z + PLAYER_Z);
+    const before = this.player.z;
 
-    this.player.step(dt, this.state === 'racing' ? playerInput : NO_INPUT);
+    if (!this.player.finished) this.elapsed += dt;
+    this.player.update(dt, this.state === 'racing' ? input : IDLE, this.traffic);
+    this.traffic.update(dt, this.player);
 
-    // AI keep driving after the player crosses the line, so you see them come
-    // in behind you and the standings settle honestly.
-    for (const a of this.ais) {
-      a.car.step(dt, a.ctrl.update(a.car, this.terrain, this.player));
+    if (this.player.finished && !this.player.finishTime) this.player.finishTime = this.elapsed;
+    for (const car of this.traffic.cars) {
+      if (car.finished && !car.finishTime) car.finishTime = this.elapsed;
     }
 
-    for (const c of this.cars) {
-      if (!c.finished && c.x >= this.terrain.finishX) {
-        c.finished = true;
-        c.finishTime = this.elapsed;
-      }
-      this.#emitDust(c);
-    }
+    // Background scrolls with the curve you are actually driving through, which
+    // is what makes a bend feel like it is turning rather than sliding.
+    const seg = this.player.segmentRef;
+    this.bgOffset += seg.curve * ((this.player.z - before) / CFG.road.SEGMENT_LENGTH) * 12;
 
-    this.#stepParticles(dt);
+    this.player.place = this.#place();
 
     if (this.player.finished) {
       this.state = 'finished';
-      // Recomputed every step so late finishers' times fill in live.
-      this.results = this.standings().map((c, i) => ({
-        place: i + 1,
-        name: c.name,
-        color: c.color,
-        isPlayer: c.isPlayer,
-        time: c.finished ? c.finishTime : null,
-        progress: c.distance / this.terrain.finishX,
-      }));
+      this.results = this.#standings();
     }
   }
 
-  standings() {
-    return this.cars.slice().sort((a, b) => {
-      if (a.finished && b.finished) return a.finishTime - b.finishTime;
+  #entries() {
+    const list = this.traffic.cars.map((c) => ({
+      name: c.name, z: c.z, finished: c.finished, time: c.finishTime || null, isPlayer: false,
+    }));
+    list.push({
+      name: 'YOU', z: this.player.z, finished: this.player.finished,
+      time: this.player.finishTime || null, isPlayer: true,
+    });
+    list.sort((a, b) => {
+      if (a.finished && b.finished) return (a.time || 0) - (b.time || 0);
       if (a.finished) return -1;
       if (b.finished) return 1;
-      return b.x - a.x;
+      return b.z - a.z;
     });
+    return list;
   }
 
-  playerPlace() {
-    return this.standings().indexOf(this.player) + 1;
+  #place() {
+    const list = this.#entries();
+    return list.findIndex((e) => e.isPlayer) + 1;
   }
 
-  #emitDust(car) {
-    if (car.airborne || car.crashed) return;
-    const speed = Math.abs(car.vx);
-    if (speed < 60) return;
-    const w = car.wheels[0];
-    if (!w.contact) return;
-    if (Math.random() > Math.min(0.8, speed / 900)) return;
-    this.particles.push({
-      x: w.worldX - 6,
-      y: w.worldY + CFG.car.RADIUS - 2,
-      vx: -car.vx * 0.12 + (Math.random() - 0.5) * 40,
-      vy: -Math.random() * 70 - 10,
-      life: 0.45 + Math.random() * 0.35,
-      age: 0,
-      r: 3 + Math.random() * 5,
-    });
-  }
-
-  #stepParticles(dt) {
-    const p = this.particles;
-    for (let i = p.length - 1; i >= 0; i--) {
-      const q = p[i];
-      q.age += dt;
-      if (q.age >= q.life) { p[i] = p[p.length - 1]; p.pop(); continue; }
-      q.x += q.vx * dt;
-      q.y += q.vy * dt;
-      q.vy += 190 * dt;
-      q.vx *= 0.96;
-    }
+  #standings() {
+    return this.#entries().map((e, i) => ({ ...e, place: i + 1 }));
   }
 }

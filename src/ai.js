@@ -1,84 +1,104 @@
 import { CFG } from './config.js';
-import { clamp, mulberry32, normalizeAngle } from './mathx.js';
+import { clamp, mulberry32, overlap } from './mathx.js';
 
-// The AI drives the exact same Vehicle through the exact same physics; only the
-// input source differs. So it wheelies, gets air, and crashes like the player.
-export class AIController {
-  constructor(personality, seed, index) {
-    this.p = personality;
-    this.rng = mulberry32((seed ^ (0xB5297A4D + Math.imul(index, 0x68E31DA4))) >>> 0);
-    this.buf = [];
+const A = CFG.ai;
+const R = CFG.road;
+
+// Opponents are plain traffic: they hold a lane, look a little way ahead, and
+// ease around whatever is in front of them. No pathfinding, no rubber banding --
+// on a road this narrow, "steer around the thing ahead" is the whole behaviour.
+export class Traffic {
+  constructor(track, seed, spriteCount) {
+    this.track = track;
+    this.rng = mulberry32((seed ^ 0x7f4a7c15) >>> 0);
+    this.cars = [];
+    this.bumped = 0;
+
+    // A staggered grid just ahead of the player. Spreading them over the whole
+    // track instead makes this traffic to weave through, not a race -- the
+    // player would start last and "position" would mean nothing.
+    for (let i = 0; i < A.COUNT; i++) {
+      const row = Math.floor(i / 3);
+      const col = i % 3;
+      const segIndex = 12 + row * 7;
+      const car = {
+        z: segIndex * R.SEGMENT_LENGTH,
+        offset: (col - 1) * 0.58 + (this.rng() - 0.5) * 0.1,
+        target: 0,
+        speed: A.MIN_SPEED + this.rng() * (A.MAX_SPEED - A.MIN_SPEED),
+        sprite: i % spriteCount,
+        finished: false,
+        finishTime: 0,
+        name: `CAR ${i + 1}`,
+      };
+      car.target = car.offset;
+      this.cars.push(car);
+    }
+    this.#rebucket();
   }
 
-  update(car, terrain, player) {
-    const p = this.p;
-    let throttle = 0;
-    let brake = 0;
+  #rebucket() {
+    for (const seg of this.track.segments) if (seg.cars.length) seg.cars.length = 0;
+    for (const car of this.cars) {
+      car.segment = this.track.findSegment(car.z);
+      car.segment.cars.push(car);
+    }
+  }
 
-    if (car.airborne) {
-      // Predict the landing point and rotate to meet the slope. This single
-      // rule does more for perceived AI quality than everything else combined.
-      const g = CFG.GRAVITY;
-      let t = 0.2;
-      for (let k = 0; k < 6; k++) {
-        const px = car.x + car.vx * t;
-        const c = car.y - terrain.heightAt(px);
-        const disc = car.vy * car.vy - 2 * g * c;
-        if (disc < 0) break;
-        t = (-car.vy + Math.sqrt(disc)) / g;
+  update(dt, player) {
+    this.bumped = Math.max(0, this.bumped - dt);
+    const segs = this.track.segments;
+
+    for (const car of this.cars) {
+      const seg = car.segment;
+      car.offset += this.#avoid(car, seg, player) * dt * A.STEER;
+
+      if (this.rng() < A.LANE_CHANGE_CHANCE) {
+        car.target = (this.rng() * 1.6) - 0.8;
       }
-      const landX = car.x + car.vx * t;
-      const err = normalizeAngle(terrain.angleAt(landX, 30) - car.angle);
-      if (err > 0.10) brake = 1;        // brake pitches the nose down
-      else if (err < -0.10) throttle = 1; // gas pitches the nose up
-    } else {
-      const v = Math.max(car.vx, 0);
-      const xNear = car.x + Math.max(70, v * 0.35);  // ~0.35 s ahead
-      const xFar = car.x + Math.max(180, v * 0.90);  // ~0.90 s ahead
-      // y grows down, so uphill is a negative slope. climb > 0 == uphill.
-      const climbHere = -terrain.slopeAt(car.x, 30);
-      const climbNear = -terrain.slopeAt(xNear, 25);
-      const climbFar = -terrain.slopeAt(xFar, 45);
-      const pitch = normalizeAngle(car.angle); // negative == nose up
+      // Ease toward the chosen lane.
+      car.offset += clamp(car.target - car.offset, -1, 1) * dt * 0.5;
+      car.offset = clamp(car.offset, -0.95, 0.95);
 
-      if (pitch < -p.pitchLimit) {
-        // About to loop over backwards.
-        throttle = 0;
-        brake = 0.5;
-      } else if (climbHere > 0.15 && climbFar < -0.25) {
-        // Crest with a drop just past it -- power over it and you backflip.
-        throttle = 0.35 * p.aggression;
-      } else if (climbNear > 0.10) {
-        throttle = 1.0;
-      } else if (climbNear < -0.45 && v > p.cruiseSpeed) {
-        // Steep descent at speed: stay planted.
-        throttle = 0.25;
-        brake = 0.25 * p.caution;
+      if (!car.finished) {
+        // Corner speed, mirroring the compromise the player has to make.
+        const factor = Math.max(A.MIN_CURVE_FACTOR, 1 - Math.abs(seg.curve) * A.CURVE_SLOWDOWN);
+        car.z += car.speed * factor * dt;
+        if (car.z >= this.track.finishZ) car.finished = true;
       } else {
-        throttle = p.aggression;
+        car.speed = Math.max(0, car.speed - 4000 * dt);
+        car.z += car.speed * dt;
+      }
+      car.z = Math.min(car.z, (segs.length - 2) * R.SEGMENT_LENGTH);
+    }
+
+    this.#rebucket();
+  }
+
+  // Look a short way up the road; steer away from anything overlapping.
+  #avoid(car, seg, player) {
+    const segs = this.track.segments;
+    const lookahead = 22;
+    const w = 0.55;
+
+    for (let i = 1; i < lookahead; i++) {
+      const s = segs[seg.index + i];
+      if (!s) break;
+
+      if (s === player.segmentRef && car.speed > player.speed &&
+          overlap(player.x, w, car.offset, w, 1.4)) {
+        return player.x > car.offset ? -1 : 1;
+      }
+      for (const other of s.cars) {
+        if (other === car) continue;
+        if (car.speed <= other.speed) continue;
+        if (!overlap(other.offset, w, car.offset, w, 1.4)) continue;
+        // Steer toward the side with more road left.
+        if (other.offset > car.offset) return -1;
+        if (other.offset < car.offset) return 1;
+        return car.offset > 0 ? -1 : 1;
       }
     }
-
-    // Per-racer noise, so the field does not move in lockstep.
-    throttle = clamp(throttle + (this.rng() - 0.5) * 0.12, 0, 1);
-
-    // Reaction lag (80-200 ms). This is what sells it as a driver rather than
-    // a solver that sees the future.
-    this.buf.push({ throttle, brake });
-    const out = this.buf.length > p.reactionFrames
-      ? this.buf.shift()
-      : { throttle: 0, brake: 0 };
-
-    // Rubber band scales ENGINE FORCE only, and switches off for the run-in so
-    // the finish is honest.
-    const A = CFG.ai;
-    if (car.x > terrain.length * A.BAND_OFF_AT) {
-      car.engineScale = 1;
-    } else {
-      const lead = car.x - player.x;
-      car.engineScale = clamp(1 - lead / A.BAND_RANGE, A.BAND_MIN, A.BAND_MAX);
-    }
-
-    return out;
+    return 0;
   }
 }

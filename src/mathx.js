@@ -1,41 +1,29 @@
-// Pure math helpers. No state, no imports.
+// Pure helpers. No state, no imports.
 
-export const TAU = Math.PI * 2;
+export const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
+export const lerp = (a, b, t) => a + (b - a) * t;
 
-export function clamp(v, lo, hi) {
-  return v < lo ? lo : v > hi ? hi : v;
+// Road-building easing (Jake Gordon's pseudo-3D conventions).
+export const easeIn = (a, b, p) => a + (b - a) * Math.pow(p, 2);
+export const easeOut = (a, b, p) => a + (b - a) * (1 - Math.pow(1 - p, 2));
+export const easeInOut = (a, b, p) => a + (b - a) * (-Math.cos(p * Math.PI) / 2 + 0.5);
+
+// Move `val` toward a target by `inc`, wrapping into [0, max).
+export function increase(start, inc, max) {
+  let r = start + inc;
+  while (r >= max) r -= max;
+  while (r < 0) r += max;
+  return r;
 }
 
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
+// Accelerate/decelerate toward a limit at a fixed rate.
+export function accelerate(v, accel, dt) {
+  return v + accel * dt;
 }
 
 export function smoothstep(edge0, edge1, x) {
   const t = clamp((x - edge0) / (edge1 - edge0), 0, 1);
   return t * t * (3 - 2 * t);
-}
-
-// Wrap an angle into [-PI, PI] so it never drifts to large float values.
-export function normalizeAngle(a) {
-  return ((a + Math.PI) % TAU + TAU) % TAU - Math.PI;
-}
-
-// Frame-rate-independent exponential smoothing. Never use `cur += (target-cur)*k`
-// directly -- that makes the smoothing rate depend on frame time.
-export function expDamp(cur, target, lambda, dt) {
-  return cur + (target - cur) * (1 - Math.exp(-lambda * dt));
-}
-
-// Uniform Catmull-Rom through p1..p2, with p0/p3 as tangent neighbours.
-export function catmull(p0, p1, p2, p3, t) {
-  const t2 = t * t;
-  const t3 = t2 * t;
-  return 0.5 * (
-    2 * p1 +
-    (-p0 + p2) * t +
-    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
-    (-p0 + 3 * p1 - 3 * p2 + p3) * t3
-  );
 }
 
 // mulberry32: small, fast, deterministic across every browser.
@@ -49,7 +37,6 @@ export function mulberry32(a) {
   };
 }
 
-// FNV-1a, for turning a seed string into a 32-bit integer.
 export function hashString(s) {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -57,4 +44,10 @@ export function hashString(s) {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+
+// Do two 1D intervals overlap? Used for car-vs-car contact on the road.
+export function overlap(x1, w1, x2, w2, pct = 1) {
+  const half = pct / 2;
+  return !((x1 + w1 * half < x2 - w2 * half) || (x1 - w1 * half > x2 + w2 * half));
 }

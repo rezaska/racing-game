@@ -1,70 +1,51 @@
-// Keyboard + touch -> { throttle: 0..1, brake: 0..1 }
+// Keyboard and touch -> { left, right, accel, brake }
+
+const MAP = {
+  ArrowLeft: 'left', KeyA: 'left',
+  ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'accel', KeyW: 'accel', Space: 'accel',
+  ArrowDown: 'brake', KeyS: 'brake',
+};
 
 export class Input {
   constructor() {
-    this.throttle = 0;
-    this.brake = 0;
-    this.onRestart = null;
-
+    this.left = this.right = this.accel = this.brake = false;
+    this.touch = { left: false, right: false, accel: false, brake: false };
     this.keys = new Set();
-    this.touchGas = false;
-    this.touchBrake = false;
+    this.onRestart = null;
+    this.onTheme = null;
 
     window.addEventListener('keydown', (e) => {
       if (e.repeat) return;
-      if (e.code === 'KeyR') {
-        if (this.onRestart) this.onRestart();
-        return;
-      }
-      if (this.#track(e.code)) {
-        this.keys.add(e.code);
-        e.preventDefault();
-      }
+      if (e.code === 'KeyR') { this.onRestart?.(); return; }
+      if (e.code === 'KeyT') { this.onTheme?.(); return; }
+      if (MAP[e.code]) { this.keys.add(e.code); e.preventDefault(); }
     });
-
-    window.addEventListener('keyup', (e) => {
-      this.keys.delete(e.code);
-    });
-
+    window.addEventListener('keyup', (e) => this.keys.delete(e.code));
     // Losing focus mid-press would otherwise leave the throttle stuck on.
-    window.addEventListener('blur', () => this.releaseAll());
+    window.addEventListener('blur', () => this.keys.clear());
 
-    this.#bindButton('btn-gas', (down) => { this.touchGas = down; });
-    this.#bindButton('btn-brake', (down) => { this.touchBrake = down; });
+    for (const id of ['left', 'right', 'accel', 'brake']) this.#bind(id);
   }
 
-  #track(code) {
-    return code === 'ArrowRight' || code === 'ArrowLeft' ||
-           code === 'KeyD' || code === 'KeyA' ||
-           code === 'KeyW' || code === 'KeyS' ||
-           code === 'Space';
-  }
-
-  #bindButton(id, set) {
-    const el = document.getElementById(id);
+  #bind(name) {
+    const el = document.getElementById(`btn-${name}`);
     if (!el) return;
-    const down = (e) => { e.preventDefault(); set(true); };
-    const up = (e) => { e.preventDefault(); set(false); };
-    el.addEventListener('pointerdown', down);
-    el.addEventListener('pointerup', up);
-    el.addEventListener('pointercancel', up);
-    el.addEventListener('pointerleave', up);
+    const set = (v) => (e) => { e.preventDefault(); this.touch[name] = v; };
+    el.addEventListener('pointerdown', set(true));
+    el.addEventListener('pointerup', set(false));
+    el.addEventListener('pointercancel', set(false));
+    el.addEventListener('pointerleave', set(false));
     el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  releaseAll() {
-    this.keys.clear();
-    this.touchGas = false;
-    this.touchBrake = false;
-  }
-
   poll() {
-    const gas = this.touchGas ||
-      this.keys.has('ArrowRight') || this.keys.has('KeyD') || this.keys.has('KeyW');
-    const brk = this.touchBrake ||
-      this.keys.has('ArrowLeft') || this.keys.has('KeyA') || this.keys.has('KeyS');
-    this.throttle = gas ? 1 : 0;
-    this.brake = brk ? 1 : 0;
+    const held = {};
+    for (const code of this.keys) held[MAP[code]] = true;
+    this.left = !!held.left || this.touch.left;
+    this.right = !!held.right || this.touch.right;
+    this.accel = !!held.accel || this.touch.accel;
+    this.brake = !!held.brake || this.touch.brake;
     return this;
   }
 }
