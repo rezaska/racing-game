@@ -2,45 +2,43 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<title>Coast Racer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VANISHING POINT</title>
+<link rel="modulepreload" href="./vendor/three/three.module.js">
+<link rel="modulepreload" href="./vendor/three/three.core.js">
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/three.module.js",
+    "three/addons/": "./vendor/three/addons/"
+  }
+}
+</script>
 <style>
-  html, body {
-    margin: 0; padding: 0; height: 100%; overflow: hidden;
-    background: #05070f;
-    display: flex; align-items: center; justify-content: center;
-    -webkit-user-select: none; user-select: none;
-    -webkit-tap-highlight-color: transparent;
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-  }
-  #game {
-    display: block;
-    image-rendering: pixelated;
-    image-rendering: crisp-edges;
-    touch-action: none;
-  }
-  .touch { display: none; }
-  @media (hover: none) {
-    .touch {
-      display: block; position: fixed; bottom: 18px;
-      width: 19vw; height: 19vw; max-width: 96px; max-height: 96px;
-      border-radius: 12px; border: 2px solid rgba(255,255,255,0.3);
-      background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85);
-      font-size: 22px; line-height: 1; padding: 0;
-    }
-    #btn-left  { left: 14px; }
-    #btn-right { left: calc(19vw + 26px); }
-    #btn-brake { right: calc(19vw + 26px); }
-    #btn-accel { right: 14px; }
-  }
+  :root { color-scheme: dark; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0d0a14; }
+  canvas { display: block; width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <button class="touch" id="btn-left" aria-label="Steer left">&#9664;</button>
-  <button class="touch" id="btn-right" aria-label="Steer right">&#9654;</button>
-  <button class="touch" id="btn-brake" aria-label="Brake">&#9660;</button>
-  <button class="touch" id="btn-accel" aria-label="Accelerate">&#9650;</button>
+  <canvas id="scene"></canvas>
+  <pre id="fatal" hidden style="position:fixed;inset:0;margin:0;padding:24px;color:#ffb4a2;background:#0d0a14;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow:auto"></pre>
+  <script>
+    // Fail visibly. A WebGL page that throws during setup just goes black, and
+    // a black screen tells you nothing.
+    addEventListener('error', (e) => {
+      const el = document.getElementById('fatal');
+      el.hidden = false;
+      el.textContent += (e.error && e.error.stack ? e.error.stack : e.message) + '\n';
+      document.title = 'ERR ' + (e.message || '');
+    });
+    addEventListener('unhandledrejection', (e) => {
+      const el = document.getElementById('fatal');
+      el.hidden = false;
+      el.textContent += 'unhandled rejection: ' + (e.reason && e.reason.stack || e.reason) + '\n';
+      document.title = 'ERR ' + e.reason;
+    });
+  </script>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

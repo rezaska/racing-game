@@ -1,12 +1,7 @@
-import { CFG } from './config.js';
-import { easeIn, easeInOut, mulberry32 } from './mathx.js';
+import { CFG } from '../config.js';
+import { easeIn, easeInOut, mulberry32 } from '../mathx.js';
 
 const R = CFG.road;
-
-export const CAMERA_DEPTH = 1 / Math.tan(((R.FIELD_OF_VIEW / 2) * Math.PI) / 180);
-// How far ahead of the camera the player's car sits. Works out to exactly
-// CAMERA_HEIGHT * CAMERA_DEPTH, so the on-screen scale is 1 / CAMERA_HEIGHT.
-export const PLAYER_Z = R.CAMERA_HEIGHT * CAMERA_DEPTH;
 
 // Curve strengths (per-segment horizontal shift) and hill heights.
 const CURVE = { NONE: 0, EASY: 2, MEDIUM: 4, HARD: 6 };
@@ -135,16 +130,4 @@ export class Track {
     const i = Math.floor(z / R.SEGMENT_LENGTH);
     return this.segments[Math.max(0, Math.min(i, this.segments.length - 1))];
   }
-}
-
-// Project a road point into screen space.
-//   scale = cameraDepth / distanceAhead  -- everything else follows from it.
-export function project(p, cameraX, cameraY, cameraZ, cameraDepth, width, height, roadWidth) {
-  p.camera.x = (p.world.x || 0) - cameraX;
-  p.camera.y = (p.world.y || 0) - cameraY;
-  p.camera.z = (p.world.z || 0) - cameraZ;
-  p.screen.scale = cameraDepth / p.camera.z;
-  p.screen.x = Math.round(width / 2 + (p.screen.scale * p.camera.x * width) / 2);
-  p.screen.y = Math.round(height / 2 - (p.screen.scale * p.camera.y * height) / 2);
-  p.screen.w = Math.round((p.screen.scale * roadWidth * width) / 2);
 }

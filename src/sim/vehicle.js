@@ -1,6 +1,5 @@
-import { CFG } from './config.js';
-import { clamp, overlap } from './mathx.js';
-import { PLAYER_Z } from './track.js';
+import { CFG } from '../config.js';
+import { clamp, overlap } from '../mathx.js';
 
 const C = CFG.car;
 const R = CFG.road;
@@ -12,7 +11,7 @@ const BRAKE = -C.MAX_SPEED / C.BRAKE_TIME;
 const DECEL = -C.MAX_SPEED / C.DECEL_TIME;
 const OFFROAD_DECEL = -C.MAX_SPEED / C.OFFROAD_DECEL_TIME;
 
-export class Player {
+export class Vehicle {
   constructor(track) {
     this.track = track;
     this.z = 0;
@@ -33,7 +32,7 @@ export class Player {
   }
 
   update(dt, input, traffic) {
-    const seg = this.track.findSegment(this.z + PLAYER_Z);
+    const seg = this.track.findSegment(this.z);
     const pct = this.speedPercent;
     // Steering authority scales with speed: stationary cars do not turn.
     const dx = dt * C.STEER_SPEED * pct;
@@ -93,8 +92,8 @@ export class Player {
   #collide(fromZ, toZ, traffic) {
     if (this.speed <= 0) return;
     const w = 0.55; // car width in road half-widths
-    const first = Math.floor((fromZ + PLAYER_Z) / R.SEGMENT_LENGTH);
-    const last = Math.floor((toZ + PLAYER_Z) / R.SEGMENT_LENGTH);
+    const first = Math.floor(fromZ / R.SEGMENT_LENGTH);
+    const last = Math.floor(toZ / R.SEGMENT_LENGTH);
     for (let i = first; i <= last; i++) {
       const seg = this.track.segments[i];
       if (!seg) continue;
@@ -105,7 +104,7 @@ export class Player {
         // you sideways, rather than stopping you dead.
         this.speed = car.speed * C.BUMP_SPEED_FACTOR;
         this.x += this.x > car.offset ? 0.14 : -0.14;
-        this.z = car.z - PLAYER_Z - R.SEGMENT_LENGTH * 0.4;
+        this.z = car.z - R.SEGMENT_LENGTH * 0.4;
         traffic.bumped = 0.25;
         return;
       }

@@ -1,5 +1,5 @@
-import { CFG } from './config.js';
-import { clamp, mulberry32, overlap } from './mathx.js';
+import { CFG } from '../config.js';
+import { clamp, mulberry32, overlap } from '../mathx.js';
 
 const A = CFG.ai;
 const R = CFG.road;
