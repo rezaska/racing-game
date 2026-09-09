@@ -157,9 +157,11 @@ export function contactShadowTexture() {
   const c = document.createElement('canvas');
   c.width = c.height = 128;
   const x = c.getContext('2d');
-  const g = x.createRadialGradient(64, 64, 4, 64, 64, 62);
-  g.addColorStop(0, 'rgba(0,0,0,0.62)');
-  g.addColorStop(0.55, 'rgba(0,0,0,0.28)');
+  // Soft and restrained. Sized and darkened like a real drop shadow it reads
+  // as a black mass under the car rather than as contact with the road.
+  const g = x.createRadialGradient(64, 64, 2, 64, 64, 62);
+  g.addColorStop(0, 'rgba(0,0,0,0.34)');
+  g.addColorStop(0.45, 'rgba(0,0,0,0.15)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   x.fillStyle = g;
   x.fillRect(0, 0, 128, 128);
@@ -169,14 +171,14 @@ export function contactShadowTexture() {
 }
 
 export function contactShadow(tex) {
-  const geo = new THREE.PlaneGeometry(CFG.car.WIDTH_M * 1.9, CFG.car.LENGTH * 1.25);
+  const geo = new THREE.PlaneGeometry(CFG.car.WIDTH_M * 1.25, CFG.car.LENGTH * 0.95);
   geo.rotateX(-Math.PI / 2);
   const mat = new THREE.MeshBasicMaterial({
     map: tex, transparent: true, depthWrite: false,
     polygonOffset: true, polygonOffsetFactor: -4, fog: true,
   });
   const m = new THREE.Mesh(geo, mat);
-  m.position.y = 0.03;
+  m.position.y = 0.02;
   m.renderOrder = 1;
   return m;
 }
