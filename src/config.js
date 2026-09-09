@@ -61,13 +61,38 @@ export const CFG = {
     DECEL_TIME: 5.0,
     OFFROAD_DECEL_TIME: 0.5,
     OFFROAD_MAX_SPEED: 3000,
-    CENTRIFUGAL: 0.22,
-    STEER_SPEED: 2.8,
     BUMP_SPEED_FACTOR: 0.5,
-    GRIP: 2.5,
-    SLIP_RANGE: 3.5,
-    DRIFT_PUSH: 0.55,
-    SLIP_RESPONSE: 6,
+
+    // --- handling ---
+    STEER_MAX: 0.55,        // rad at the road wheel (31 deg)
+    STEER_TAU: 0.14,        // steering lag; instant steering feels twitchy
+    A_FRONT: 1.30,          // CoM to front axle, m
+    B_REAR: 1.30,
+    MU_ROAD: 1.45,
+    MU_OFFROAD: 0.50,
+    OFFROAD_DRAG: 1.1,
+    // Opening the throttle unloads the rear laterally, so a slide can be
+    // provoked on purpose rather than only suffered.
+    POWER_OVERSTEER: 0.35,
+    // Yaw-rate assist: firm when planted so the car goes where it is pointed,
+    // slack once sliding so a drift is the driver's to hold. Also the
+    // difficulty dial -- raise ASSIST_FIRM and the car is effectively on rails.
+    ASSIST_FIRM: 7.0,
+    ASSIST_LOOSE: 2.4,
+    // The tyre curve peaks near 0.19 rad, so a threshold of 0.15 dropped the
+    // assist to slack the instant the rear was worked at all.
+    SLIDE_THRESHOLD: 0.28,
+    STEER_HEADROOM: 1.12,   // steer angle allowed above the grip limit. Above ~1.3,
+                            // sustained full lock (which is all a keyboard can
+                            // give) always exceeds grip and the car just spins.
+    BARRIER: 2.4,           // half-widths before the soft barrier pushes back
+    // Hard limit on how far off-track the car may get, in half-widths. This is
+    // not tidiness: the road surface is parameterised as C(s) + right(s)*n, and
+    // that mapping is SINGULAR once |n| reaches the radius of curvature (93 m
+    // at the tightest). Past it the projection folds, returns garbage, and the
+    // car teleports across the map. 4.5 half-widths is 31 m, comfortably clear.
+    OFF_LIMIT: 4.5,
+    V_LAT_MAX: 26,          // m/s of sideways slide; nothing physical exceeds it
 
     // Collision half-width in road half-widths. At the old 0.55 this fired with
     // a visible 1.4 m gap between cars once the world had a real scale:

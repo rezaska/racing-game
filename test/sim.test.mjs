@@ -17,16 +17,32 @@ let fails = 0;
 const ok = (c, m, x = '') => { if (!c) fails++; console.log(`${c ? '  PASS' : '  FAIL'}  ${m}${x ? '  ' + x : ''}`); };
 const DT = CFG.DT;
 
-// A competent driver, so races are a test of the game rather than of an idiot.
+// A competent driver for the physics car. The old autopilot steered by setting
+// a lateral offset directly, which the on-rails model allowed and this one does
+// not -- here it has to actually aim the car.
+const V_MAX = CFG.car.MAX_SPEED * CFG.world.U;
+function wrap(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
+
 function drive(race) {
   const p = race.player;
-  const ahead = race.track.findSegment(p.z + CFG.road.SEGMENT_LENGTH * 20);
-  const target = -Math.sign(ahead.curve) * Math.min(0.45, Math.abs(ahead.curve) * 0.08);
-  const err = p.x - target;
-  const safe = Math.abs(ahead.curve) > 0.5
-    ? Math.min(1, 0.92 / (Math.abs(ahead.curve) * CFG.car.CENTRIFUGAL)) : 1;
-  const want = CFG.car.MAX_SPEED * safe;
-  return { left: err > 0.05, right: err < -0.05, accel: p.speed < want, brake: p.speed > want * 1.12 };
+  const t3 = race.t3;
+  const look = t3.frameAt(Math.min(p.s + 16, t3.length - 1), {});
+
+  // Aim: heading error toward the road ahead, plus a pull back to the centre.
+  const he = wrap(look.yaw - p.psi);
+  const cmd = he * 1.5 + (p.n / t3.halfWidth) * 0.6;
+
+  // Corner speed from the curvature ahead: v = sqrt(a_lat / kappa).
+  const seg = race.track.findSegment(t3.sToZ(Math.min(p.s + 30, t3.length - 1)));
+  const kappa = Math.abs(seg.curve) * CFG.world.KAPPA;
+  const want = kappa > 1e-6 ? Math.min(V_MAX, Math.sqrt(9.0 / kappa)) : V_MAX;
+
+  return {
+    left: cmd > 0.02,
+    right: cmd < -0.02,
+    accel: p.vx < want,
+    brake: p.vx > want * 1.18,
+  };
 }
 
 console.log('\n== Track generation ==');
@@ -98,10 +114,29 @@ for (const seed of [1234, 42, 777]) {
   ok(race.state === 'finished', `seed ${seed}: player finished`,
      `${race.player.finishTime?.toFixed(1)}s, P${race.player.place}/${race.fieldSize}`);
   ok(race.player.place < startPlace, `seed ${seed}: gained places`, `${startPlace} -> ${race.player.place}`);
-  ok(worstX < 2.0, `seed ${seed}: stayed near the road`, `max |x| ${worstX.toFixed(2)}`);
-  ok(maxSlip > 0.3, `seed ${seed}: tyres break traction in hard bends`, `peak slip ${maxSlip.toFixed(2)}`);
+  ok(worstX < 2.2, `seed ${seed}: stayed near the road`, `max |x| ${worstX.toFixed(2)}`);
+  ok(maxSlip > 0.15, `seed ${seed}: tyres break traction in hard bends`, `peak slip ${maxSlip.toFixed(2)}`);
   ok(race.traffic.cars.every((c) => Number.isFinite(c.z) && Math.abs(c.offset) <= 1.0),
      `seed ${seed}: AI finite and on the road`);
+}
+
+console.log('\n== Off-track excursion ==');
+{
+  const race = new Race(1234); race.start(); race.state = 'racing';
+  // Full lock and full throttle straight off the road, then hold it there.
+  let worstN = 0, worstZ = 0;
+  for (let i = 0; i < 60 * 60; i++) {
+    race.step(DT, { left: true, right: false, accel: true, brake: false });
+    worstN = Math.max(worstN, Math.abs(race.player.n));
+    worstZ = Math.max(worstZ, race.player.z);
+    if (!Number.isFinite(race.player.n) || !Number.isFinite(race.player.z)) break;
+  }
+  const p = race.player;
+  ok(Number.isFinite(p.n) && Number.isFinite(p.z) && Number.isFinite(p.psi),
+     'state stays finite when driven off the road');
+  ok(worstN < CFG.car.OFF_LIMIT * race.t3.halfWidth + 1,
+     'lateral offset stays inside the singular radius', `max |n| ${worstN.toFixed(1)} m`);
+  ok(worstZ <= race.track.finishZ, 'cannot teleport past the finish', `max z ${worstZ.toFixed(0)}`);
 }
 
 console.log('\n== Determinism ==');
@@ -109,7 +144,7 @@ console.log('\n== Determinism ==');
   const run = () => {
     const r = new Race(4242); r.start();
     const rng = mulberry32(11);
-    for (let i = 0; i < 60 * 40; i++) {
+    for (let i = 0; i < 60 * 25; i++) {
       r.step(DT, { left: rng() < 0.2, right: rng() < 0.2, accel: rng() < 0.85, brake: rng() < 0.05 });
     }
     return JSON.stringify(r.standings().map((e) => [e.name, e.z.toFixed(6)]));

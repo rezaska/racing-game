@@ -1,5 +1,6 @@
 import { CFG } from '../config.js';
 import { Track } from './track.js';
+import { Track3D } from './track3d.js';
 import { Vehicle } from './vehicle.js';
 import { Traffic } from './ai.js';
 import { mulberry32 } from '../mathx.js';
@@ -14,11 +15,13 @@ export class Race {
   restart(seed) {
     this.seed = seed;
     this.track = new Track(seed);
-    this.player = new Vehicle(this.track);
+    this.t3 = new Track3D(this.track);
+    this.player = new Vehicle(this.track, this.t3);
     this.traffic = new Traffic(this.track, seed, CFG.ai.LIVERIES);
     this.fieldSize = this.traffic.cars.length + 1;
     this.state = 'attract';
     this.attractT = 0;
+    this.attractS = 0;
     this.countdown = CFG.race.COUNTDOWN;
     this.elapsed = 0;
     this.results = null;
@@ -28,10 +31,11 @@ export class Race {
   // Back to the title screen without rebuilding the course, so the meshes the
   // renderer already holds stay valid.
   toAttract() {
-    this.player = new Vehicle(this.track);
+    this.player = new Vehicle(this.track, this.t3);
     this.traffic = new Traffic(this.track, this.seed, CFG.ai.LIVERIES);
     this.state = 'attract';
     this.attractT = 0;
+    this.attractS = 0;
     this.elapsed = 0;
     this.results = null;
   }
@@ -40,7 +44,7 @@ export class Race {
   // and the traffic down the road, so both are rebuilt rather than raced from
   // wherever the camera drifted to.
   start() {
-    this.player = new Vehicle(this.track);
+    this.player = new Vehicle(this.track, this.t3);
     this.traffic = new Traffic(this.track, this.seed, CFG.ai.LIVERIES);
     this.elapsed = 0;
     this.countdown = CFG.race.COUNTDOWN;
@@ -50,15 +54,23 @@ export class Race {
 
   step(dt, input) {
     if (this.state === 'attract') {
-      // A slow demo cruise behind the title, looping back to the start.
+      // A slow demo cruise behind the title. It drives the car along the
+      // spline directly rather than through the physics, so the title screen
+      // cannot be knocked off the road by its own opponents.
       this.attractT += dt;
-      this.player.speed = 3400;
-      this.player.z += this.player.speed * dt;
-      this.player.x = Math.sin(this.attractT * 0.45) * 0.4;
-      const seg = this.track.findSegment(this.player.z);
-      this.player.segmentRef = seg;
-      this.traffic.update(dt, this.player);
-      if (this.player.z > this.track.finishZ * 0.75) this.player.z = 0;
+      const t3 = this.t3;
+      this.attractS += 3400 * CFG.world.U * dt;
+      if (this.attractS > t3.length * 0.72) this.attractS = 0;
+      const n = Math.sin(this.attractT * 0.45) * 0.4 * t3.halfWidth;
+      const f = t3.surfaceAt(this.attractS, n, {});
+      const p = this.player;
+      p.px = f.x; p.py = f.y; p.pz = f.z;
+      p.psi = f.yaw; p.bank = f.bank; p.grade = f.grade;
+      p.s = this.attractS; p.n = n;
+      p.z = t3.sToZ(this.attractS); p.x = t3.nToX(n);
+      p.vx = 3400 * CFG.world.U; p.speed = 3400;
+      p.segmentRef = this.track.findSegment(p.z);
+      this.traffic.update(dt, p);
       return;
     }
 

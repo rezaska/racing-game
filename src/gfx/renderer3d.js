@@ -69,6 +69,11 @@ export class Renderer3D {
       shoulder: new THREE.MeshStandardMaterial({ color: art.terrainNear, roughness: 0.95 }),
       terrain: new THREE.MeshStandardMaterial({ color: art.terrainFar, roughness: 1.0, envMapIntensity: 0.4 }),
       scenery: new THREE.MeshStandardMaterial({ color: art.sceneryColor, roughness: 0.95, envMapIntensity: 0.5 }),
+      // Metal, so the rails pick up the sky and read as a bright line tracing
+      // the outside of every bend -- which is most of what they are for.
+      rail: new THREE.MeshStandardMaterial({ color: art.railColor, roughness: 0.38, metalness: 0.85, envMapIntensity: 1.5 }),
+      post: new THREE.MeshStandardMaterial({ color: art.sceneryColor, roughness: 0.8, metalness: 0.3 }),
+      hills: new THREE.MeshStandardMaterial({ color: art.terrainFar, roughness: 1.0, envMapIntensity: 0.25 }),
     };
   }
 
@@ -108,6 +113,9 @@ export class Renderer3D {
     this.materials.shoulder.color.set(art.terrainNear);
     this.materials.terrain.color.set(art.terrainFar);
     this.materials.scenery.color.set(art.sceneryColor);
+    this.materials.rail.color.set(art.railColor);
+    this.materials.post.color.set(art.sceneryColor);
+    this.materials.hills.color.set(art.terrainFar);
     if (this.post) this.post.syncArt();
   }
 

@@ -18,13 +18,16 @@ function treeGeometry(kind) {
     const trunk = new THREE.CylinderGeometry(0.16, 0.28, 8.2, 6, 1);
     trunk.translate(0, 4.1, 0);
     parts.push(trunk);
-    for (let i = 0; i < 7; i++) {
-      const frond = new THREE.ConeGeometry(0.5, 3.4, 4, 1);
-      frond.rotateZ(Math.PI / 2.1);
-      frond.translate(1.5, 0, 0);
-      frond.rotateY((i / 7) * Math.PI * 2);
-      frond.rotateZ(-0.35);
-      frond.translate(0, 8.2, 0);
+    // Fronds droop and are flattened. Radially symmetric cones held out
+    // horizontally read as windmill sails, not as a palm.
+    for (let i = 0; i < 8; i++) {
+      const frond = new THREE.ConeGeometry(0.42, 3.1, 4, 1);
+      frond.scale(1, 1, 0.35);           // flatten into a blade
+      frond.rotateZ(Math.PI / 2);
+      frond.translate(1.55, -0.35, 0);
+      frond.rotateZ(-0.62 - (i % 2) * 0.22);   // hang down, alternating
+      frond.rotateY((i / 8) * Math.PI * 2 + 0.3);
+      frond.translate(0, 8.3, 0);
       parts.push(frond);
     }
   } else {
