@@ -1,103 +1,116 @@
-# Coast Racer
+# VANISHING POINT
 
-A pixel-art arcade racer in the OutRun / Pole Position mould: you sit behind the
-car, the road curves away to the horizon, and you steer left and right through
-traffic to the finish. Vanilla JavaScript and Canvas 2D — no dependencies, no
-build step.
+A 3D racing game that runs in a browser tab. No engine, no art assets, no build
+step — every texture, model, road and sky is generated in code at load.
 
-## Run
+**Live:** https://rezaska.github.io/racing-game/
 
-ES modules require http; opening `index.html` from `file://` will fail the CORS check.
+## Run it locally
+
+ES modules need http; `file://` fails the CORS check.
 
 ```sh
 python3 -m http.server 8000
-# then open http://localhost:8000
+# open http://localhost:8000
 ```
 
 ## Controls
 
-| Action | Keys |
+| | |
 | --- | --- |
-| Start / any control | leaves the title screen |
-| Steer | `←` `→` or `A` `D` |
-| Accelerate | `↑` / `W` / `Space` |
-| Brake | `↓` / `S` |
-| New race | `R` |
-| Switch theme | `T` |
+| Steer | `←` `→` |
+| Throttle / brake | `↑` `↓` |
+| New road | `R` |
+| Back to the title | `Esc` |
 
-You start at the back of a fifteen-car field. Centrifugal force pushes you to the
-outside of every bend, and past a certain speed no amount of steering will hold
-the corner — lifting off for the hard ones is the whole game. Push a bend harder
-than the tyres will take and the car breaks traction and slides wide, smoking,
-until you catch it. Two wheels on the grass caps you at a crawl, and rear-ending
-a slower car drops you to their speed.
+You start at the back of a fifteen-car grid. Corners have to be driven: push one
+harder than the tyres will take and the car slides wide until you catch it, and
+two wheels on the verge costs you most of your speed.
 
-## Tracks and themes
+Each course comes from the seed in the URL (`#seed=1234`), so a road can be
+shared by copying the link.
 
-The course comes from a seed in the URL: `#seed=1234`. The same seed always
-builds the same course, so a track can be shared by copying the link. `R` picks a
-new one.
+## URL parameters
 
-Two themes render the same engine: `coast` (default) — sea, palms, dithered blue
-sky — and `night` (`#seed=1234&theme=night`) — city skyline with lit windows,
-starfield, lamp posts. Toggle live with `T`. They differ only in palette,
-background layers and roadside props.
-
-## Layout
-
-| File | Contents |
+| | |
 | --- | --- |
-| `src/config.js` | Every tunable number and both themes. Start here. |
-| `src/mathx.js` | Pure helpers: easing, seeded PRNG, interval overlap |
-| `src/track.js` | Seeded course building, and the projection that makes it 3D |
-| `src/player.js` | Player car: throttle, steering, centrifugal drift, collisions |
-| `src/ai.js` | Opponents: lane holding, look-ahead avoidance, corner speed |
-| `src/race.js` | Race state machine, standings, results |
-| `src/render.js` | Dithered sky, parallax layers, road, sprites, HUD |
-| `src/sprites.js` | Procedural pixel-art sprites drawn at 1px granularity |
-| `src/pixelfont.js` | 5x7 bitmap font |
-| `src/input.js` | Keyboard and touch |
-| `src/main.js` | Bootstrap and the fixed-timestep loop |
+| `#seed=1234` | pick a course; the same seed always builds the same road |
+| `?art=1` | live art-direction panel, with copy-to-clipboard config |
+| `?play=1` | skip the title screen |
+| `?warp=20` | run the simulation forward before the first frame (for stills) |
+| `?shadow=512` | smaller shadow map, for software rendering |
+| `?post=0` | disable post-processing |
 
-## How the 3D works
-
-There is no 3D. The road is a list of segments, each with a curve and an
-elevation. Every frame each segment is projected to the screen with
+## How it is put together
 
 ```
-scale = cameraDepth / distanceAhead
+src/sim/     simulation. Never imports three.js, never touches the DOM.
+src/world/   geometry and materials built from the track
+src/gfx/     renderer, camera, car model, HUD, art panel
+src/site/    landing page styling
+vendor/      three.js, vendored so it runs offline
 ```
 
-and drawn as a flat trapezoid between its near and far edges, front to back,
-clipping anything hidden behind a crest. Curves come from accumulating a
-horizontal shift per segment as you walk down the list. This is the classic
-pseudo-3D technique those arcade cabinets used.
+That first line is the load-bearing one. Because `src/sim` is renderer-agnostic,
+`test/sim.test.mjs` runs in plain Node with no canvas stub — a rendering change
+cannot silently break race logic without a test failing.
 
-The picture is drawn at a low internal resolution (240px tall, width following
-the window aspect) and scaled up by a whole number with `image-rendering:
-pixelated`, so every pixel stays square. Sprites are drawn procedurally at 1px
-granularity rather than loaded as images.
-
-## Notes on the road furniture
-
-Guardrails are drawn per segment as a quad standing on the verge, in a second
-back-to-front pass **after** every road segment. Drawing them inline does not
-work: a rail extends upward into the band where farther segments are still to be
-drawn, so distant road paints straight over near rails.
-
-## Notes on balance
-
-Steering authority and centrifugal drift both scale with steering speed, so it
-cancels out and whether a bend is holdable reduces to
-
-```
-speedPercent * curve * CENTRIFUGAL < 1
+```sh
+node test/sim.test.mjs
 ```
 
-which is why `CENTRIFUGAL` is the single most important number in `config.js`.
-Opponents shed speed in bends by the same logic; without that they rounded every
-corner flat out and could not be caught.
+### The road is a number
 
-Drift sits on top of that. Cornering load is `|curve| * speedPercent`; past
-`GRIP` the tyres let go and `DRIFT_PUSH` slides the car toward the outside of the
-bend, which you catch on the steering.
+A course is a seeded shuffle of straights, sweepers and S-bends. That list
+becomes a heading, integrated along the ground into a 3D centreline, then swept
+into a mesh with banking, a cambered crown and rumble strips.
+
+Two constants in `config.js` were measured against the real generator rather
+than guessed, and both would have quietly wrecked the 3D version:
+
+- **Elevation** at 1:1 gives **125.7% grades** and 294 m of relief. The 2D
+  renderer hid it by only ever drawing height relative to the draw distance.
+  Scaling, grade-limiting and box-filtering brings it to 13% — and the 90 m
+  crest radius that falls out means the car gets real air above 107 km/h on
+  every seed.
+- **Curvature**, converted literally, gives a 31 m corner radius and coils the
+  track through itself on **55 of 120 seeds**. Pinning the radius at 93 m gives
+  0/200, and matches the throttle the handling model already implied.
+
+### One low sun
+
+The scene is lit by a single sun 5° above the horizon, which makes a shadow 11.4×
+the height of whatever casts it — a line of trees stripes the entire road. It
+also means the sun contributes almost nothing to the tarmac, which sits at 85° to
+the light. The road is lit by sky ambient, and that ambient is deliberately
+**cool**: tint it with the amber horizon and every surface floods orange and the
+picture loses its warm/cold separation.
+
+## Re-vendoring three.js
+
+Pinned to 0.180.0. The build is split, and both files must sit side by side.
+
+```sh
+V=0.180.0
+curl -sfL -o vendor/three/three.module.js "https://cdn.jsdelivr.net/npm/three@$V/build/three.module.js"
+curl -sfL -o vendor/three/three.core.js   "https://cdn.jsdelivr.net/npm/three@$V/build/three.core.js"
+for f in postprocessing/EffectComposer postprocessing/RenderPass postprocessing/ShaderPass \
+         postprocessing/OutputPass postprocessing/UnrealBloomPass postprocessing/Pass \
+         postprocessing/MaskPass shaders/CopyShader shaders/LuminosityHighPassShader \
+         shaders/OutputShader utils/BufferGeometryUtils; do
+  curl -sfL -o "vendor/three/addons/$f.js" "https://cdn.jsdelivr.net/npm/three@$V/examples/jsm/$f.js"
+done
+```
+
+## Earlier versions
+
+Two previous takes on the same repo, both playable:
+
+- `pixel-outrun` — pixel-art pseudo-3D racer, Canvas 2D, zero dependencies
+- `hill-climb` — 2D side-scrolling hill-climb racer with spring suspension
+
+## Credits
+
+Built by one person with Claude as a collaborator. The design decisions, art
+direction and judgement about what was worth building are mine; much of the
+typing, measuring and debugging is not.

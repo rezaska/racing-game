@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VANISHING POINT</title>
+<meta name="description" content="A 3D racing game built for the browser. No engine, no art assets, no build step — every texture, model and road generated in code.">
 <link rel="modulepreload" href="./vendor/three/three.module.js">
 <link rel="modulepreload" href="./vendor/three/three.core.js">
+<link rel="stylesheet" href="./src/site/landing.css">
 <script type="importmap">
 {
   "imports": {
@@ -14,15 +16,87 @@
   }
 }
 </script>
-<style>
-  :root { color-scheme: dark; }
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0d0a14; }
-  canvas { display: block; width: 100vw; height: 100vh; }
-</style>
 </head>
 <body>
   <canvas id="scene"></canvas>
-  <pre id="fatal" hidden style="position:fixed;inset:0;margin:0;padding:24px;color:#ffb4a2;background:#0d0a14;font:12px/1.6 ui-monospace,monospace;white-space:pre-wrap;overflow:auto"></pre>
+
+  <div id="hud" aria-hidden="true">
+    <div class="pod pod-speed"><b data-speed>0</b><span>km/h</span></div>
+    <div class="pod pod-pos"><span>pos</span><b data-place>15/15</b></div>
+    <div class="pod pod-time"><span>time</span><b data-time>0:00.00</b></div>
+    <div class="bar"><i data-progress></i></div>
+    <div class="countdown" data-countdown hidden>3</div>
+    <div class="results" data-results hidden></div>
+  </div>
+
+  <header id="hero">
+    <h1>Vanishing<span>Point</span></h1>
+    <p class="tagline">A racing game that runs in a browser tab.<br>No engine. No art assets. No build step.</p>
+    <button id="start" type="button">Press start</button>
+    <p class="hint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>&uarr;</kbd> throttle &middot; <kbd>&darr;</kbd> brake &middot; <kbd>R</kbd> new road</p>
+    <a class="scroll" href="#story">How it was made</a>
+  </header>
+
+  <main id="story">
+    <section class="lede">
+      <p>Every road you drive is generated from a number in the URL. Nothing here
+      was downloaded — the tarmac, the cars, the trees and the sky are all built
+      in code the moment the page loads.</p>
+    </section>
+
+    <section class="facts">
+      <dl>
+        <div><dt>0</dt><dd>art assets. No textures, no models, no fonts.</dd></div>
+        <div><dt>0</dt><dd>build steps. Plain ES modules, served as files.</dd></div>
+        <div><dt>1</dt><dd>dependency: three.js, vendored so it runs offline.</dd></div>
+        <div><dt>15</dt><dd>cars on a grid you start at the back of.</dd></div>
+        <div><dt>2<i>km</i></dt><dd>of road per course, curves and crests included.</dd></div>
+        <div><dt>&infin;</dt><dd>courses. Change the seed, change the road.</dd></div>
+      </dl>
+    </section>
+
+    <section class="prose">
+      <h2>The road is a number</h2>
+      <p>A course is a seeded shuffle of straights, sweepers and S-bends. That
+      list becomes a heading, integrated along the ground into a real
+      three-dimensional centreline, then swept into a mesh with banking, a
+      cambered crown and rumble strips. Change the seed in the address bar and
+      you get a different road, the same one every time.</p>
+
+      <p>The hard part was not making it look like a road. It was that the
+      numbers which worked in two dimensions were quietly absurd in three. The
+      original elevation data implied gradients of 126% — a cliff face — which
+      the old renderer had hidden by only ever drawing height relative to the
+      horizon. The original curvature, converted honestly, coiled the track
+      through itself on nearly half of all seeds. Both were found by measuring,
+      not by looking.</p>
+
+      <h2>One low sun</h2>
+      <p>The whole scene is lit by a single sun five degrees above the horizon.
+      At that angle a shadow is eleven times the height of the thing casting it,
+      so a line of trees stripes the entire width of the road. It also means the
+      sun contributes almost nothing to the tarmac itself, which sits at
+      eighty-five degrees to the light — the road is lit by the sky, and the
+      sky's ambient had to be made deliberately cool so the picture keeps its
+      warm and cold halves apart.</p>
+
+      <h2>Made by one person, with AI</h2>
+      <p>Written with Claude as a collaborator: the design decisions, the art
+      direction and the judgement about what was worth building are mine; a
+      great deal of the typing, the measuring and the debugging is not. The
+      interesting part was never the volume of code. It was knowing which
+      questions to ask of it — and checking the answers.</p>
+    </section>
+
+    <footer>
+      <a href="https://github.com/rezaska/racing-game">Source on GitHub</a>
+      <span>Built in the browser, for the browser.</span>
+    </footer>
+  </main>
+
+  <div id="rotate"><p><b>Vanishing Point</b><br>Best on a desktop browser.</p></div>
+  <pre id="fatal" hidden></pre>
+
   <script>
     // Fail visibly. A WebGL page that throws during setup just goes black, and
     // a black screen tells you nothing.

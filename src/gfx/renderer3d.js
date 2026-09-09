@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { CFG } from '../config.js';
 import { Sky, sunDirection } from '../world/sky.js';
+import { Post } from './post.js';
 
 const R = CFG.render;
 
@@ -30,6 +31,7 @@ export class Renderer3D {
 
     this.#lights();
     this.materials = this.#materials();
+    this.post = devNum('post', 1) !== 0 ? new Post(this.renderer, this.scene, this.camera) : null;
     this.pixelRatio = Math.min(window.devicePixelRatio, R.PIXEL_RATIO_MAX);
     this.frameAvg = 16;
     this.resize();
@@ -105,6 +107,8 @@ export class Renderer3D {
     this.materials.rumble.color.set(art.rumbleLight);
     this.materials.shoulder.color.set(art.terrainNear);
     this.materials.terrain.color.set(art.terrainFar);
+    this.materials.scenery.color.set(art.sceneryColor);
+    if (this.post) this.post.syncArt();
   }
 
   resize() {
@@ -113,6 +117,7 @@ export class Renderer3D {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w, h, false);
+    if (this.post) this.post.setSize(w, h);
   }
 
   // Rolling average, dropping resolution before dropping frames.
@@ -125,8 +130,9 @@ export class Renderer3D {
     }
   }
 
-  render() {
+  render(dt = 1 / 60, speedPct = 0) {
     this.sky.mesh.position.copy(this.camera.position);
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render(dt, speedPct);
+    else this.renderer.render(this.scene, this.camera);
   }
 }

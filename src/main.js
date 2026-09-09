@@ -9,6 +9,8 @@ import { ChaseCam } from './gfx/chasecam.js';
 import { buildRoadChunks, cullChunks } from './world/roadmesh.js';
 import { buildScenery } from './world/scenery.js';
 import { buildCarModel, updateWheels } from './gfx/carmodel.js';
+import { Hud } from './gfx/hud.js';
+import { mountArtPanel } from './gfx/artpanel.js';
 
 function seedFromHash() {
   const m = /seed=([^&]+)/.exec(location.hash);
@@ -20,6 +22,7 @@ function seedFromHash() {
   return (Math.random() * 0xffffffff) >>> 0;
 }
 
+const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('scene');
 const gfx = new Renderer3D(canvas);
 const input = new Input();
@@ -54,9 +57,35 @@ function build(seed) {
 }
 
 const cam = new ChaseCam(gfx.camera, null);
+const hud = new Hud(document.getElementById('hud'));
 build(seedFromHash());
 
-input.onRestart = () => build((Math.random() * 0xffffffff) >>> 0);
+// --- page <-> game ---
+function enterRace() {
+  if (race.state !== 'attract') return;
+  race.start();
+  document.body.classList.add('playing');
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+function leaveRace() {
+  race.toAttract();
+  document.body.classList.remove('playing');
+}
+document.getElementById('start').addEventListener('click', enterRace);
+addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') leaveRace();
+  // Only take over the keyboard once the page is out of the way.
+  else if (document.body.classList.contains('playing') && e.code === 'KeyR') {
+    build((Math.random() * 0xffffffff) >>> 0);
+    race.start();
+  }
+});
+
+if (params.has('art')) {
+  mountArtPanel(() => { gfx.syncArt(); });
+}
+if (params.has('play')) enterRace();
+
 window.addEventListener('resize', () => gfx.resize());
 
 const f = {};
@@ -123,7 +152,7 @@ function frame(now) {
 
   acc += ft;
   const held = input.poll();
-  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) race.start();
+  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) enterRace();
 
   let steps = 0;
   while (acc >= CFG.DT && steps < 6) {
@@ -139,7 +168,8 @@ function frame(now) {
   cullChunks(scenery, st, t3.ds);
   cam.update(carState, Math.max(1 / 240, ft));
   gfx.updateSun(carState.position);
-  gfx.render();
+  hud.update(race);
+  gfx.render(ft, carState.speedPct);
   gfx.adapt(performance.now() - t0);
   requestAnimationFrame(frame);
 }

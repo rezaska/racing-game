@@ -25,6 +25,17 @@ export class Race {
   }
 
 
+  // Back to the title screen without rebuilding the course, so the meshes the
+  // renderer already holds stay valid.
+  toAttract() {
+    this.player = new Vehicle(this.track);
+    this.traffic = new Traffic(this.track, this.seed, CFG.ai.LIVERIES);
+    this.state = 'attract';
+    this.attractT = 0;
+    this.elapsed = 0;
+    this.results = null;
+  }
+
   // Leaves attract mode with a clean grid: the demo drive has moved the player
   // and the traffic down the road, so both are rebuilt rather than raced from
   // wherever the camera drifted to.

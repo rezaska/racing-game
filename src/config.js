@@ -144,17 +144,17 @@ export const CFG = {
     sceneryColor: '#0f0c16',
     railColor: '#3a3346',
 
-    playerColor: '#f2ede3',
+    playerColor: '#dcd3c4',
 
-    exposure: 1.05,
-    bloomStrength: 0.62,
-    bloomRadius: 0.55,
-    bloomThreshold: 0.62,
+    exposure: 0.86,
+    bloomStrength: 0.30,
+    bloomRadius: 0.62,
+    bloomThreshold: 0.92,
     vignette: 0.38,
-    grain: 0.035,
+    grain: 0.022,
     gradeShadow: '#2a3f52',   // cool shadows
     gradeHighlight: '#ffcf9e', // warm highlights
-    gradeStrength: 0.3,
+    gradeStrength: 0.45,
   },
 
   render: {
