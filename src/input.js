@@ -3,14 +3,17 @@
 const MAP = {
   ArrowLeft: 'left', KeyA: 'left',
   ArrowRight: 'right', KeyD: 'right',
-  ArrowUp: 'accel', KeyW: 'accel', Space: 'accel',
+  ArrowUp: 'accel', KeyW: 'accel',
   ArrowDown: 'brake', KeyS: 'brake',
+  ShiftLeft: 'boost', ShiftRight: 'boost',
+  Space: 'handbrake',
 };
 
 export class Input {
   constructor() {
     this.left = this.right = this.accel = this.brake = false;
-    this.touch = { left: false, right: false, accel: false, brake: false };
+    this.boost = this.handbrake = false;
+    this.touch = { left: false, right: false, accel: false, brake: false, boost: false, handbrake: false };
     this.keys = new Set();
     this.onRestart = null;
     this.onTheme = null;
@@ -46,6 +49,8 @@ export class Input {
     this.right = !!held.right || this.touch.right;
     this.accel = !!held.accel || this.touch.accel;
     this.brake = !!held.brake || this.touch.brake;
+    this.boost = !!held.boost || this.touch.boost;
+    this.handbrake = !!held.handbrake || this.touch.handbrake;
     return this;
   }
 }

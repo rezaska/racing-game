@@ -1,40 +1,29 @@
 import { CFG } from '../config.js';
 import { clamp, overlap } from '../mathx.js';
 
-// The player's car: a real vehicle in the world, not a point sliding along the
-// track.
+// ARCADE handling, in the Need for Speed / Ridge Racer tradition.
 //
-// The previous model set the car's heading to the track's heading and moved it
-// sideways to steer, which reads exactly as what it was -- the car crabbing
-// across the road without ever pointing where it was going.
+// This deliberately is NOT a physics simulation. The previous version was a
+// bicycle model with slip-curve tyres, which makes a car that understeers at
+// the limit, demands you manage entry speed, and punishes mistakes. That is a
+// simulator's idea of fun, and it is the wrong genre entirely.
 //
-// Here the car carries its own heading, body-frame velocity and yaw rate, and
-// is PROJECTED onto the centreline every frame. Because `s / U` is then the old
-// `z` and `n / W` is the old `x`, the AI, collisions, standings and the whole
-// test suite keep working untouched.
+// The arcade formulation is much simpler and far easier to make enjoyable:
 //
-// Conventions: yaw psi matches the track (forward = (-sin psi, -cos psi)), and
-// psi INCREASES to the left. Body velocity is (vx forward, vy leftward).
+//   heading  turns directly from the steering input
+//   velocity chases the heading at a rate called GRIP
+//   drift    is simply GRIP dropping for a while
+//
+// The angle between heading and velocity IS the drift, it is always visible,
+// and it is always recoverable by steering. Nothing here can spin you out
+// against your will.
 
 const C = CFG.car;
+const A = CFG.arcade;
 const U = CFG.world.U;
-const G = 9.81;
+const V_MAX = C.MAX_SPEED * U;
 
-const V_MAX = C.MAX_SPEED * U;                 // 42 m/s
-const F_DRIVE = (C.MASS * V_MAX) / C.ACCEL_TIME;
-const F_BRAKE = (C.MASS * V_MAX) / C.BRAKE_TIME;
-// Drag pinned so top speed lands exactly on the configured value.
-const C_DRAG = F_DRIVE / (V_MAX * V_MAX);
-const F_ROLL = F_DRIVE * 0.055;
-const FZ = (C.MASS * G) / 2;
-
-// Saturating tyre curve. The fall-off past the peak is what makes a slide
-// catchable instead of snapping away the instant grip is exceeded.
-const tyre = (alpha, mu) => mu * FZ * Math.sin(1.6 * Math.atan(8 * alpha));
-const smoothstep = (x, a, b) => {
-  const t = clamp((x - a) / (b - a), 0, 1);
-  return t * t * (3 - 2 * t);
-};
+const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class Vehicle {
   constructor(track, t3, startS = 0, startN = 0) {
@@ -43,108 +32,103 @@ export class Vehicle {
 
     const f = t3.surfaceAt(startS, startN, {});
     this.px = f.x;
-    this.pz = f.z;
     this.py = f.y;
-    this.psi = f.yaw;
-
-    this.vx = 0;        // forward, m/s
-    this.vy = 0;        // leftward, m/s
-    this.r = 0;         // yaw rate, rad/s
-    this.delta = 0;     // road-wheel angle, + = left
+    this.pz = f.z;
+    this.psi = f.yaw;      // where the car points
+    this.vpsi = f.yaw;     // where the car is actually going
     this.hint = 0;
 
-    this.z = t3.sToZ(startS);   // legacy along-track
-    this.x = t3.nToX(startN);   // legacy lateral, |x| > 1 is off road
+    this.speed = 0;        // metres/s along vpsi
+    this.boost = A.BOOST_MAX * 0.4;
+    this.boosting = false;
+    this.drifting = false;
+    this.beta = 0;         // heading minus travel: the visible slide
+    this.delta = 0;        // front-wheel angle, visual only
+    this.steer = 0;
+
     this.s = startS;
     this.n = startN;
-    this.speed = 0;
-    this.steer = 0;
-    this.slip = 0;
-    this.beta = 0;
-    this.lateralG = 0;
+    this.z = t3.sToZ(startS);
+    this.x = t3.nToX(startN);
     this.offroad = false;
+    this.slip = 0;
+    this.lateralG = 0;
     this.finished = false;
     this.finishTime = 0;
     this.place = 1;
     this.bump = 0;
+    this.nearMiss = 0;
   }
 
-  get speedPct() { return Math.max(0, this.vx) / V_MAX; }
+  // Kept for the renderer and the camera, which think in body-frame velocity.
+  get vx() { return this.speed * Math.cos(this.beta); }
+  get vy() { return this.speed * Math.sin(this.beta); }
+  get speedPct() { return this.speed / V_MAX; }
 
   update(dt, input, traffic) {
     const t3 = this.t3;
-    const throttle = this.finished ? 0 : input.accel ? 1 : 0;
-    const brake = this.finished ? 0 : input.brake ? 1 : 0;
-    const steerIn = (input.left ? 1 : 0) - (input.right ? 1 : 0); // + = left
+    const done = this.finished;
+    const throttle = done ? 0 : input.accel ? 1 : 0;
+    const brake = done ? 0 : input.brake ? 1 : 0;
+    const steerIn = (input.left ? 1 : 0) - (input.right ? 1 : 0);
 
-    // Limit the steering angle to the grip that actually exists, rather than to
-    // an arbitrary speed curve.
-    //
-    //   a_lat = v^2 * delta / L   ->   delta_max = L * a_max / v^2
-    //
-    // This matters more than it looks. Steering from a keyboard is inherently
-    // bang-bang, and at 42 m/s a 93 m corner needs 0.028 rad while a fixed
-    // curve was handing out 0.118 -- so every tap was a massive over-steer and
-    // the car spent the race sliding. Capping the command at what the tyres can
-    // deliver makes the car go where it is pointed, and leaves the slides to
-    // come from throttle and from leaving the road, which is where they belong.
-    // Always sized against ROAD grip, never the current surface. Scaling this
-    // by the off-road coefficient collapsed steering authority to 0.008 rad on
-    // grass, so leaving the road was unrecoverable -- a death spiral. The tyre
-    // model already reduces the force off-road; capping the command as well
-    // double-counts it. HEADROOM > 1 leaves just enough over the grip limit to
-    // provoke a slide deliberately, instead of pure understeer.
-    const vxSafe = Math.max(Math.abs(this.vx), 1);
-    const aMax = C.MU_ROAD * G * C.STEER_HEADROOM;
-    const dMax = Math.min(C.STEER_MAX, (C.WHEELBASE * aMax) / (vxSafe * vxSafe));
-    const target = dMax * steerIn;
-    this.delta += (target - this.delta) * (1 - Math.exp(-dt / C.STEER_TAU));
-    this.steer = steerIn;
+    // --- boost -----------------------------------------------------------
+    const wantBoost = !done && input.boost && this.boost > 0.02 && this.speed > 4;
+    this.boosting = wantBoost;
+    if (wantBoost) this.boost = Math.max(0, this.boost - dt / A.BOOST_SECONDS);
 
-    const vxAbs = Math.max(Math.abs(this.vx), 0.6);
+    const vMax = V_MAX * (this.boosting ? A.BOOST_TOP : 1) * (this.offroad ? A.OFFROAD_TOP : 1);
 
-    // Surface grip, read from the projected lateral position.
-    const muBase = this.offroad ? C.MU_OFFROAD : C.MU_ROAD;
-    // Power oversteer: opening the throttle unloads the rear laterally, which
-    // is what lets the driver provoke a slide deliberately.
-    const muRear = muBase * (1 - C.POWER_OVERSTEER * throttle * smoothstep(this.vx, 10, 26));
+    // --- speed -----------------------------------------------------------
+    let accel = 0;
+    if (throttle) accel = (V_MAX / C.ACCEL_TIME) * (this.boosting ? A.BOOST_ACCEL : 1);
+    else if (brake) accel = -V_MAX / C.BRAKE_TIME;
+    else accel = -V_MAX / C.DECEL_TIME;
+    // Ease off as top speed approaches instead of slamming into a clamp.
+    if (accel > 0) accel *= clamp(1 - (this.speed / vMax) ** 2, 0, 1);
+    this.speed += accel * dt;
+    if (this.speed > vMax) this.speed += (vMax - this.speed) * (1 - Math.exp(-3 * dt));
+    this.speed = clamp(this.speed, 0, V_MAX * A.BOOST_TOP);
 
-    const af = this.delta - Math.atan2(this.vy + C.A_FRONT * this.r, vxAbs);
-    const ar = -Math.atan2(this.vy - C.B_REAR * this.r, vxAbs);
-    const Ff = tyre(af, muBase);
-    const Fr = tyre(ar, muRear);
+    // --- steering: turn rate straight from the input --------------------
+    // Falls off with speed, but never far. The car must still turn at 200 km/h
+    // or it feels like a barge; it just should not pirouette.
+    const sp = clamp(this.speed / V_MAX, 0, 1.2);
+    const turn = A.TURN_MAX * (1 - A.TURN_FALLOFF * sp);
+    // A little lag so taps are not instant, but far less than a real car.
+    this.steer += (steerIn - this.steer) * (1 - Math.exp(-dt / A.STEER_TAU));
+    this.delta = this.steer * 0.42;
 
-    let Fx = throttle * F_DRIVE - brake * F_BRAKE * Math.sign(this.vx || 1);
-    Fx -= C_DRAG * this.vx * Math.abs(this.vx);
-    Fx -= F_ROLL * Math.sign(this.vx || 0);
-    if (this.offroad) Fx -= C.OFFROAD_DRAG * this.vx * Math.abs(this.vx);
+    const moving = clamp(this.speed / 6, 0, 1);
+    this.psi += this.steer * turn * moving * dt;
 
-    const cd = Math.cos(this.delta);
-    this.vx += (Fx / C.MASS + this.vy * this.r) * dt;
-    this.vy += ((Ff * cd + Fr) / C.MASS - this.vx * this.r) * dt;
-    this.r += ((C.A_FRONT * Ff * cd - C.B_REAR * Fr) / C.INERTIA) * dt;
+    // --- drift: GRIP is the whole handling model -------------------------
+    // Entering a slide is deliberate (handbrake) or the natural result of
+    // asking for a lot of steering at speed. Either way it is held and exited
+    // on the steering, never lost.
+    const hard = Math.abs(this.steer) > A.DRIFT_STEER && sp > A.DRIFT_MIN_SPEED;
+    const wantDrift = !done && (input.handbrake || (hard && A.AUTO_DRIFT));
+    this.drifting = wantDrift && this.speed > 6;
 
-    // Blend the yaw rate toward the kinematic reference. Firm when the car is
-    // planted, slack once the driver has provoked a slide -- this is both the
-    // "it goes where you point it" feel and the difficulty dial.
-    const rRef = (this.vx * Math.tan(this.delta)) / C.WHEELBASE;
-    const k = Math.abs(ar) > C.SLIDE_THRESHOLD ? C.ASSIST_LOOSE : C.ASSIST_FIRM;
-    this.r += (rRef - this.r) * (1 - Math.exp(-k * dt));
+    const grip = this.offroad ? A.GRIP_OFFROAD : this.drifting ? A.GRIP_DRIFT : A.GRIP;
+    this.vpsi += wrap(this.psi - this.vpsi) * (1 - Math.exp(-grip * dt));
+    this.beta = wrap(this.psi - this.vpsi);
 
-    // Anti-pirouette: stop a low-speed spin from becoming a permanent one.
-    this.beta = Math.atan2(this.vy, vxAbs);
-    if (Math.abs(this.beta) > 1.05 && Math.abs(this.vx) < 8) this.r *= Math.exp(-6 * dt);
+    // Hard cap on the slide angle so the car can never end up backwards.
+    if (Math.abs(this.beta) > A.BETA_MAX) {
+      this.vpsi = this.psi - Math.sign(this.beta) * A.BETA_MAX;
+      this.beta = Math.sign(this.beta) * A.BETA_MAX;
+    }
 
-    this.vx = clamp(this.vx, -V_MAX * 0.35, V_MAX);
-    this.vy = clamp(this.vy, -C.V_LAT_MAX, C.V_LAT_MAX);
-    this.r = clamp(this.r, -2.6, 2.6);
-    this.psi += this.r * dt;
+    this.slip = clamp((Math.abs(this.beta) - 0.05) / A.BETA_MAX, 0, 1);
+    // Sliding scrubs speed, which is what stops drifting being a free lunch.
+    this.speed -= this.speed * this.slip * A.DRIFT_SCRUB * dt;
+    // ...but a good slide pays for itself in boost. This is the loop.
+    if (this.slip > 0.25) this.boost = Math.min(A.BOOST_MAX, this.boost + dt * A.BOOST_FROM_DRIFT * this.slip);
 
-    // Integrate in the world, then find out where that is on the track.
-    const sinP = Math.sin(this.psi);
-    const cosP = Math.cos(this.psi);
-    this.px += (-sinP * this.vx - cosP * this.vy) * dt;
-    this.pz += (-cosP * this.vx + sinP * this.vy) * dt;
+    // --- move ------------------------------------------------------------
+    this.px -= Math.sin(this.vpsi) * this.speed * dt;
+    this.pz -= Math.cos(this.vpsi) * this.speed * dt;
 
     const proj = t3.projectToTrack(this.px, this.py, this.pz, this.hint);
     this.hint = proj.i;
@@ -158,55 +142,61 @@ export class Vehicle {
     this.groundYaw = f.yaw;
     this.bank = f.bank;
     this.grade = f.grade;
-
     this.offroad = Math.abs(this.x) > 1.12;
-    this.speed = this.vx / U;
-    this.lateralG = (this.vx * this.r) / G;
-    // Drift signal, used for smoke, camera roll and the drift readout.
-    this.slip = clamp((Math.abs(this.beta) - 0.06) / 0.42, 0, 1);
+    this.lateralG = (this.speed * this.steer * turn) / 9.81;
 
-    // Soft barrier rather than a wall: hitting a wall spins you and ends the
-    // race, which is a punishment out of all proportion to the mistake.
-    const limit = C.BARRIER * t3.halfWidth;
+    // Soft nudge back toward the road, so wandering off is a nuisance rather
+    // than the end of your race.
+    const limit = A.BARRIER * t3.halfWidth;
     if (Math.abs(this.n) > limit) {
-      this.vy -= 26 * (Math.abs(this.n) - limit) * Math.sign(this.n) * dt;
+      const over = Math.abs(this.n) - limit;
+      this.psi += wrap(f.yaw - this.psi) * (1 - Math.exp(-clamp(over * 0.5, 0, 4) * dt));
+      this.speed -= this.speed * 0.5 * dt;
     }
 
-    // Hard stop, and NOT for tidiness: see OFF_LIMIT in config. Past the radius
-    // of curvature the (s, n) surface folds and the projection returns nonsense.
-    const hard = C.OFF_LIMIT * t3.halfWidth;
-    if (Math.abs(this.n) > hard || !Number.isFinite(this.n)) {
-      this.n = Number.isFinite(this.n) ? Math.sign(this.n) * hard : 0;
-      const g = t3.surfaceAt(this.s, this.n, {});
-      this.px = g.x; this.py = g.y; this.pz = g.z;
-      this.x = t3.nToX(this.n);
-      // Kill only the outward component.
-      const outward = this.vy * -Math.sign(this.n);
-      if (outward > 0) this.vy = 0;
-    }
+    // The car is snapped back onto the (s, n) surface every frame, clamped.
+    //
+    // Testing |n| against a limit is not enough: the surface is parameterised
+    // as C(s) + right(s)*n, which is singular once |n| reaches the radius of
+    // curvature, so once the car is genuinely far out the projection reports a
+    // small n for a car 300 m away and the test never fires. Reconstructing the
+    // position from the clamped parameters makes the two consistent by
+    // construction. Within the limits the round trip is exact to 1e-4 m, so
+    // this is a no-op for normal driving.
+    const hardLimit = C.OFF_LIMIT * t3.halfWidth;
+    if (!Number.isFinite(this.n)) this.n = 0;
+    if (!Number.isFinite(this.s)) this.s = 0;
+    this.n = clamp(this.n, -hardLimit, hardLimit);
+    const g = t3.surfaceAt(this.s, this.n, {});
+    this.px = g.x; this.py = g.y; this.pz = g.z;
+    this.x = t3.nToX(this.n);
 
     this.bump = Math.max(0, this.bump - dt * 3);
-    this.#collide(traffic);
+    this.nearMiss = Math.max(0, this.nearMiss - dt * 2);
+    this.#traffic(traffic, dt);
 
     if (!this.finished && this.z >= this.track.finishZ) this.finished = true;
   }
 
-  #collide(traffic) {
-    if (this.vx <= 0) return;
+  // Contact is a glancing scrape, never a race-ender. Passing close pays boost,
+  // which is what makes traffic something to dive at rather than avoid.
+  #traffic(traffic, dt) {
     const w = C.HALF_WIDTH;
     const segIdx = Math.floor(this.z / CFG.road.SEGMENT_LENGTH);
     for (let i = segIdx - 1; i <= segIdx + 1; i++) {
       const seg = this.track.segments[i];
       if (!seg) continue;
       for (const car of seg.cars) {
-        if (this.speed <= car.speed) continue;
+        const gap = Math.abs(this.x - car.offset);
+        if (gap < w * 2.6 && gap > w * 1.5 && this.speed > car.speed * U) {
+          this.boost = Math.min(A.BOOST_MAX, this.boost + dt * A.BOOST_FROM_NEAR);
+          this.nearMiss = 1;
+        }
+        if (this.speed <= car.speed * U) continue;
         if (!overlap(this.x, w, car.offset, w, 0.85)) continue;
-        // An impulse, not a teleport: scrub speed, get shoved aside and
-        // twitched off line, then drive out of it.
-        this.vx = car.speed * U * C.BUMP_SPEED_FACTOR;
+        this.speed *= A.BUMP_KEEP;
         const side = Math.sign(this.x - car.offset) || 1;
-        this.vy += side * 2.6;
-        this.r += side * 0.5;
+        this.psi += side * 0.09;
         this.bump = 1;
         traffic.bumped = 0.25;
         return;

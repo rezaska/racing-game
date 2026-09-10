@@ -20,12 +20,17 @@ python3 -m http.server 8000
 | --- | --- |
 | Steer | `←` `→` |
 | Throttle / brake | `↑` `↓` |
+| Boost | `Shift` |
+| Drift (handbrake) | `Space` |
 | New road | `R` |
+| Mute | `M` |
 | Back to the title | `Esc` |
 
-You start at the back of a fifteen-car grid. Corners have to be driven: push one
-harder than the tyres will take and the car slides wide until you catch it, and
-two wheels on the verge costs you most of your speed.
+You start at the back of a fifteen-car grid. The handling is arcade, not
+simulation: the car goes where you point it, you can hold the throttle through
+most corners, and nothing will spin you out against your will. Throw it into a
+bend hard, or pull the handbrake, and it drifts — which fills the boost meter,
+as does passing close to another car. Spend the boost on the straights.
 
 Each course comes from the seed in the URL (`#seed=1234`), so a road can be
 shared by copying the link.
@@ -76,6 +81,22 @@ than guessed, and both would have quietly wrecked the 3D version:
 - **Curvature**, converted literally, gives a 31 m corner radius and coils the
   track through itself on **55 of 120 seeds**. Pinning the radius at 93 m gives
   0/200, and matches the throttle the handling model already implied.
+
+### The handling is deliberately not a simulation
+
+An earlier version used a bicycle model with slip-curve tyres. It was more
+correct and much less fun: it understeered at the limit, demanded the entry
+speed be managed for every corner, and punished mistakes. The arcade model that
+replaced it is three lines of idea —
+
+```
+heading  turns directly from the steering input
+velocity chases the heading at a rate called GRIP
+drift    is simply GRIP dropping for a while
+```
+
+— and the angle between heading and velocity *is* the drift: always visible,
+always recoverable on the steering, and capped so the car can never swap ends.
 
 ### One low sun
 

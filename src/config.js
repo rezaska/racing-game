@@ -63,41 +63,12 @@ export const CFG = {
     OFFROAD_MAX_SPEED: 3000,
     BUMP_SPEED_FACTOR: 0.5,
 
-    // --- handling ---
-    STEER_MAX: 0.55,        // rad at the road wheel (31 deg)
-    STEER_TAU: 0.10,        // steering lag; instant steering feels twitchy
-    A_FRONT: 1.30,          // CoM to front axle, m
-    B_REAR: 1.30,
-    MU_ROAD: 1.45,
-    MU_OFFROAD: 0.50,
-    OFFROAD_DRAG: 1.1,
-    // Opening the throttle unloads the rear laterally, so a slide can be
-    // provoked on purpose rather than only suffered.
-    POWER_OVERSTEER: 0.35,
-    // Yaw-rate assist: firm when planted so the car goes where it is pointed,
-    // slack once sliding so a drift is the driver's to hold. Also the
-    // difficulty dial -- raise ASSIST_FIRM and the car is effectively on rails.
-    ASSIST_FIRM: 7.0,
-    ASSIST_LOOSE: 2.4,
-    // The tyre curve peaks near 0.19 rad, so a threshold of 0.15 dropped the
-    // assist to slack the instant the rear was worked at all.
-    SLIDE_THRESHOLD: 0.28,
-    STEER_HEADROOM: 1.12,   // steer angle allowed above the grip limit. Above ~1.3,
-                            // sustained full lock (which is all a keyboard can
-                            // give) always exceeds grip and the car just spins.
-    BARRIER: 2.4,           // half-widths before the soft barrier pushes back
-    // Hard limit on how far off-track the car may get, in half-widths. This is
-    // not tidiness: the road surface is parameterised as C(s) + right(s)*n, and
-    // that mapping is SINGULAR once |n| reaches the radius of curvature (93 m
-    // at the tightest). Past it the projection folds, returns garbage, and the
-    // car teleports across the map. 4.5 half-widths is 31 m, comfortably clear.
+    // How far off-track the car may get, in half-widths. Not tidiness: the road
+    // surface is parameterised as C(s) + right(s)*n, and that mapping is
+    // SINGULAR once |n| reaches the radius of curvature (93 m at the tightest).
+    // Past it the projection folds and reports a small n for a car hundreds of
+    // metres away. 4.5 half-widths is 31 m, comfortably clear.
     OFF_LIMIT: 4.5,
-    V_LAT_MAX: 26,          // m/s of sideways slide; nothing physical exceeds it
-
-    // Collision half-width in road half-widths. At the old 0.55 this fired with
-    // a visible 1.4 m gap between cars once the world had a real scale:
-    //   0.85 * 0.32 * 7 m = 1.90 m, exactly two car widths touching.
-    HALF_WIDTH: 0.32,
 
     // --- physical dimensions, metres ---
     LENGTH: 4.40,
@@ -107,6 +78,37 @@ export const CFG = {
     WHEEL_RADIUS: 0.34,
     MASS: 1200,
     INERTIA: 1600,
+  },
+
+  // Arcade handling. GRIP is the whole model: how fast the direction of travel
+  // chases the direction the car points. High grip = goes where you point it.
+  // Dropping it is what a drift IS.
+  arcade: {
+    TURN_MAX: 2.15,          // rad/s of yaw at a standstill
+    // Turn rate at top speed is TURN_MAX * (1 - FALLOFF) = 0.82 rad/s, against
+    // the 0.45 needed for the tightest corner. Generous on purpose.
+    TURN_FALLOFF: 0.62,
+    STEER_TAU: 0.10,
+
+    GRIP: 7.0,
+    GRIP_DRIFT: 1.7,
+    GRIP_OFFROAD: 3.2,
+    BETA_MAX: 0.72,          // ~41 deg of slide, and never more
+    AUTO_DRIFT: true,
+    DRIFT_STEER: 0.46,       // held steering past this slides the car
+    DRIFT_MIN_SPEED: 0.30,
+    DRIFT_SCRUB: 0.55,       // sliding costs speed, or drifting is free
+
+    BOOST_MAX: 1,
+    BOOST_SECONDS: 3.2,      // a full meter, held down
+    BOOST_TOP: 1.32,
+    BOOST_ACCEL: 1.9,
+    BOOST_FROM_DRIFT: 0.42,
+    BOOST_FROM_NEAR: 0.55,
+
+    BARRIER: 1.30,
+    OFFROAD_TOP: 0.55,
+    BUMP_KEEP: 0.72,
   },
 
   ai: {

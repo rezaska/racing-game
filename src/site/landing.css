@@ -393,3 +393,51 @@ body.loaded #loading { opacity: 0; visibility: hidden; }
   text-transform: uppercase;
   color: var(--ink-dim);
 }
+
+/* ---------- boost + drift ---------- */
+
+.boost {
+  position: absolute;
+  left: 40px;
+  bottom: 132px;
+  width: 190px;
+}
+.boost b {
+  display: block;
+  height: 6px;
+  background: var(--line);
+  position: relative;
+  overflow: hidden;
+}
+.boost b::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(var(--b, 0) * 100%);
+  background: linear-gradient(90deg, #ff7a3d, #ffd08a);
+  transition: width 0.12s linear;
+}
+.boost.firing b::after { background: linear-gradient(90deg, #ffd08a, #ffffff); }
+.boost span {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.58rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+.drift {
+  position: absolute;
+  left: 50%;
+  bottom: 22%;
+  transform: translateX(-50%) scale(0.9);
+  font-size: 1.5rem;
+  font-weight: 300;
+  letter-spacing: 0.42em;
+  color: var(--amber);
+  opacity: 0;
+  transition: opacity 0.14s, transform 0.2s;
+  text-shadow: 0 2px 30px rgba(0, 0, 0, 0.9);
+}
+.drift.on { opacity: 1; transform: translateX(-50%) scale(1); }

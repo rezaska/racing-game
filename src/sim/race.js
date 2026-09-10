@@ -68,7 +68,11 @@ export class Race {
       p.psi = f.yaw; p.bank = f.bank; p.grade = f.grade;
       p.s = this.attractS; p.n = n;
       p.z = t3.sToZ(this.attractS); p.x = t3.nToX(n);
-      p.vx = 3400 * CFG.world.U; p.speed = 3400;
+      // Metres per second: `speed` changed units with the arcade model, and vx
+      // is now a derived getter with no setter -- assigning to it throws.
+      p.speed = 3400 * CFG.world.U;
+      p.vpsi = f.yaw;
+      p.beta = 0;
       p.segmentRef = this.track.findSegment(p.z);
       this.traffic.update(dt, p);
       return;

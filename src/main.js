@@ -165,8 +165,11 @@ if (params.has('art')) {
 
 
 // Photo mode: strip every overlay so stills show the render alone.
+// shot=1 keeps the HUD; shot=clean strips it too, for art-direction stills.
 function photoMode() {
-  for (const id of ['hero', 'story', 'hud', 'loading']) {
+  const clean = params.get('shot') === 'clean';
+  const ids = clean ? ['hero', 'story', 'hud', 'loading'] : ['hero', 'story', 'loading'];
+  for (const id of ids) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }
@@ -260,12 +263,11 @@ function runWarp() {
   const autopilot = () => {
     const p = race.player;
     const look = t3.frameAt(Math.min(p.s + 16, t3.length - 1), {});
-    const cmd = wrapAng(look.yaw - p.psi) * 1.5 + (p.n / t3.halfWidth) * 0.6;
-    const seg = race.track.findSegment(t3.sToZ(Math.min(p.s + 30, t3.length - 1)));
-    const kappa = Math.abs(seg.curve) * CFG.world.KAPPA;
-    const vMax = CFG.car.MAX_SPEED * CFG.world.U;
-    const want = kappa > 1e-6 ? Math.min(vMax, Math.sqrt(9.0 / kappa)) : vMax;
-    return { left: cmd > 0.02, right: cmd < -0.02, accel: p.vx < want, brake: p.vx > want * 1.18 };
+    const cmd = wrapAng(look.yaw - p.psi) * 1.7 + (p.n / t3.halfWidth) * 0.7;
+    return {
+      left: cmd > 0.03, right: cmd < -0.03, accel: true, brake: false,
+      boost: Math.abs(cmd) < 0.06 && p.boost > 0.4, handbrake: false,
+    };
   };
   for (let i = 0; i < Math.round(warp / CFG.DT); i++) {
     race.step(CFG.DT, race.state === 'racing' ? autopilot() : idle);

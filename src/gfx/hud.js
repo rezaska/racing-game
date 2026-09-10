@@ -15,6 +15,8 @@ export class Hud {
     this.prog = root.querySelector('[data-progress]');
     this.count = root.querySelector('[data-countdown]');
     this.results = root.querySelector('[data-results]');
+    this.boost = root.querySelector('[data-boost]');
+    this.drift = root.querySelector('[data-drift]');
     this.lastState = null;
   }
 
@@ -23,11 +25,17 @@ export class Hud {
     const racing = race.state === 'racing' || race.state === 'finished';
     this.root.classList.toggle('is-live', racing || race.state === 'countdown');
 
-    this.speed.textContent = Math.round(Math.abs(p.speed) / 40);
+    // speed is metres per second now, not legacy units.
+    this.speed.textContent = Math.round(Math.abs(p.speed) * 3.6);
     this.place.textContent = `${p.place}/${race.fieldSize}`;
     this.time.textContent = race.state === 'countdown' ? '0:00.00' : fmt(race.elapsed);
     const pct = Math.max(0, Math.min(1, p.z / race.track.finishZ));
     this.prog.style.setProperty('--p', pct);
+    if (this.boost) {
+      this.boost.style.setProperty('--b', p.boost ?? 0);
+      this.boost.classList.toggle('firing', !!p.boosting);
+    }
+    if (this.drift) this.drift.classList.toggle('on', p.slip > 0.3);
 
     if (race.state === 'countdown') {
       const n = Math.ceil(race.countdown - 0.6);

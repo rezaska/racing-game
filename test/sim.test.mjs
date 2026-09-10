@@ -17,31 +17,24 @@ let fails = 0;
 const ok = (c, m, x = '') => { if (!c) fails++; console.log(`${c ? '  PASS' : '  FAIL'}  ${m}${x ? '  ' + x : ''}`); };
 const DT = CFG.DT;
 
-// A competent driver for the physics car. The old autopilot steered by setting
-// a lateral offset directly, which the on-rails model allowed and this one does
-// not -- here it has to actually aim the car.
+// An arcade driver: aim at the road ahead and hold the throttle. That it can
+// do that at all is the point -- the old simulation model needed the entry
+// speed managed for every corner.
 const V_MAX = CFG.car.MAX_SPEED * CFG.world.U;
 function wrap(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 
 function drive(race) {
   const p = race.player;
   const t3 = race.t3;
-  const look = t3.frameAt(Math.min(p.s + 16, t3.length - 1), {});
-
-  // Aim: heading error toward the road ahead, plus a pull back to the centre.
-  const he = wrap(look.yaw - p.psi);
-  const cmd = he * 1.5 + (p.n / t3.halfWidth) * 0.6;
-
-  // Corner speed from the curvature ahead: v = sqrt(a_lat / kappa).
-  const seg = race.track.findSegment(t3.sToZ(Math.min(p.s + 30, t3.length - 1)));
-  const kappa = Math.abs(seg.curve) * CFG.world.KAPPA;
-  const want = kappa > 1e-6 ? Math.min(V_MAX, Math.sqrt(9.0 / kappa)) : V_MAX;
-
+  const look = t3.frameAt(Math.min(p.s + 20, t3.length - 1), {});
+  const cmd = wrap(look.yaw - p.psi) * 1.7 + (p.n / t3.halfWidth) * 0.7;
   return {
-    left: cmd > 0.02,
-    right: cmd < -0.02,
-    accel: p.vx < want,
-    brake: p.vx > want * 1.18,
+    left: cmd > 0.03,
+    right: cmd < -0.03,
+    accel: true,
+    brake: false,
+    boost: Math.abs(cmd) < 0.06 && p.boost > 0.4,
+    handbrake: false,
   };
 }
 
@@ -100,6 +93,38 @@ console.log('\n== Projection round-trip ==');
      `s ${ws.toExponential(1)} m, n ${wn.toExponential(1)} m`);
 }
 
+console.log('\n== Handling ==');
+{
+  const GO = { left: false, right: false, accel: true, brake: false };
+  const race = new Race(1234); race.start(); race.state = 'racing';
+  for (let i = 0; i < 60 * (CFG.car.ACCEL_TIME + 3); i++) race.step(DT, GO);
+  ok(race.player.speed > V_MAX * 0.9, 'reaches top speed on the throttle',
+     `${(race.player.speed * 3.6).toFixed(0)} km/h`);
+
+  // Turn-in. This is the thing the simulation model did not have: half a second
+  // of steering must actually rotate the car.
+  const r2 = new Race(1234); r2.start(); r2.state = 'racing';
+  for (let i = 0; i < 60 * 5; i++) r2.step(DT, GO);
+  const psi0 = r2.player.psi;
+  for (let i = 0; i < 30; i++) r2.step(DT, { left: true, right: false, accel: true, brake: false });
+  const turned = Math.abs(r2.player.psi - psi0) * 57.3;
+  ok(turned > 8 && turned < 70, 'half a second of steering turns the car usefully',
+     `${turned.toFixed(1)} deg`);
+
+  // Compared from the start line, on the opening straight. Running the two
+  // cases from a rolling start instead just measures which one wandered off
+  // the road first.
+  const run = (boost) => {
+    const r = new Race(1234); r.start(); r.state = 'racing';
+    for (let i = 0; i < 60 * 3; i++) r.step(DT, { ...GO, boost });
+    return r.player.speed;
+  };
+  const plain = run(false);
+  const boosted = run(true);
+  ok(boosted > plain * 1.1, 'boost is a real gain',
+     `${(plain * 3.6).toFixed(0)} -> ${(boosted * 3.6).toFixed(0)} km/h`);
+}
+
 console.log('\n== Races ==');
 for (const seed of [1234, 42, 777]) {
   const race = new Race(seed); race.start();
@@ -115,9 +140,33 @@ for (const seed of [1234, 42, 777]) {
      `${race.player.finishTime?.toFixed(1)}s, P${race.player.place}/${race.fieldSize}`);
   ok(race.player.place < startPlace, `seed ${seed}: gained places`, `${startPlace} -> ${race.player.place}`);
   ok(worstX < 2.2, `seed ${seed}: stayed near the road`, `max |x| ${worstX.toFixed(2)}`);
-  ok(maxSlip > 0.15, `seed ${seed}: tyres break traction in hard bends`, `peak slip ${maxSlip.toFixed(2)}`);
+  ok(worstX < 2.2, `seed ${seed}: never far off the road`, `max |x| ${worstX.toFixed(2)}`);
   ok(race.traffic.cars.every((c) => Number.isFinite(c.z) && Math.abs(c.offset) <= 1.0),
      `seed ${seed}: AI finite and on the road`);
+}
+
+console.log('\n== Drifting ==');
+{
+  const race = new Race(1234); race.start(); race.state = 'racing';
+  const GO = { left: false, right: false, accel: true, brake: false };
+  for (let i = 0; i < 60 * 7; i++) race.step(DT, GO);
+
+  // Held lock at speed should slide the car.
+  let peak = 0;
+  for (let i = 0; i < 60 * 2; i++) {
+    race.step(DT, { left: true, right: false, accel: true, brake: false });
+    peak = Math.max(peak, race.player.slip);
+  }
+  ok(peak > 0.4, 'held steering at speed breaks it into a slide', `peak slip ${peak.toFixed(2)}`);
+  ok(Math.abs(race.player.beta) <= CFG.arcade.BETA_MAX + 1e-6,
+     'the slide is capped, so it can never swap ends', `${(race.player.beta * 57.3).toFixed(0)} deg`);
+
+  // And a drift should pay for itself in boost.
+  const r2 = new Race(1234); r2.start(); r2.state = 'racing';
+  for (let i = 0; i < 60 * 7; i++) r2.step(DT, GO);
+  const b0 = r2.player.boost;
+  for (let i = 0; i < 60 * 2; i++) r2.step(DT, { left: true, right: false, accel: true, brake: false, handbrake: true });
+  ok(r2.player.boost > b0, 'drifting fills the boost meter', `${b0.toFixed(2)} -> ${r2.player.boost.toFixed(2)}`);
 }
 
 console.log('\n== Off-track excursion ==');
@@ -126,7 +175,7 @@ console.log('\n== Off-track excursion ==');
   // Full lock and full throttle straight off the road, then hold it there.
   let worstN = 0, worstZ = 0;
   for (let i = 0; i < 60 * 60; i++) {
-    race.step(DT, { left: true, right: false, accel: true, brake: false });
+    race.step(DT, { left: true, right: false, accel: true, brake: false, boost: true, handbrake: false });
     worstN = Math.max(worstN, Math.abs(race.player.n));
     worstZ = Math.max(worstZ, race.player.z);
     if (!Number.isFinite(race.player.n) || !Number.isFinite(race.player.z)) break;
