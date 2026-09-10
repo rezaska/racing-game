@@ -200,7 +200,8 @@ function placeAI(obj, car, i) {
   obj.rotation.set(0, 0, 0);
   obj.rotateY(yaw);
   obj.rotateZ(f.bank);
-  obj.rotateX(-Math.atan(f.grade));
+  // +, not -: rotateX(+t) pitches the nose UP, and grade is positive uphill.
+  obj.rotateX(Math.atan(f.grade));
   return f;
 }
 
@@ -216,7 +217,7 @@ function sync(dt) {
   car.rotation.set(0, 0, 0);
   car.rotateY(p.psi);
   car.rotateZ(f.bank + bodyRoll);
-  car.rotateX(-Math.atan(f.grade) + bodyPitch);
+  car.rotateX(Math.atan(f.grade) + bodyPitch);
 
   carState.position.set(f.x, f.y, f.z);
   const sinP = Math.sin(p.psi), cosP = Math.cos(p.psi);

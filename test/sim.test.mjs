@@ -96,14 +96,18 @@ console.log('\n== Projection round-trip ==');
 console.log('\n== Handling ==');
 {
   const GO = { left: false, right: false, accel: true, brake: false };
-  const race = new Race(1234); race.start(); race.state = 'racing';
-  for (let i = 0; i < 60 * (CFG.car.ACCEL_TIME + 3); i++) race.step(DT, GO);
+  // Clear the road first. Now that collisions work, an unsteered run straight
+  // off the line just rear-ends the grid, and this would measure that instead.
+  const clear = (r) => r.traffic.cars.forEach((c) => { c.z += 1e6; });
+
+  const race = new Race(1234); race.start(); race.state = 'racing'; clear(race);
+  for (let i = 0; i < 60 * (CFG.car.ACCEL_TIME + 4); i++) race.step(DT, drive(race));
   ok(race.player.speed > V_MAX * 0.9, 'reaches top speed on the throttle',
      `${(race.player.speed * 3.6).toFixed(0)} km/h`);
 
   // Turn-in. This is the thing the simulation model did not have: half a second
   // of steering must actually rotate the car.
-  const r2 = new Race(1234); r2.start(); r2.state = 'racing';
+  const r2 = new Race(1234); r2.start(); r2.state = 'racing'; clear(r2);
   for (let i = 0; i < 60 * 5; i++) r2.step(DT, GO);
   const psi0 = r2.player.psi;
   for (let i = 0; i < 30; i++) r2.step(DT, { left: true, right: false, accel: true, brake: false });
@@ -115,7 +119,7 @@ console.log('\n== Handling ==');
   // cases from a rolling start instead just measures which one wandered off
   // the road first.
   const run = (boost) => {
-    const r = new Race(1234); r.start(); r.state = 'racing';
+    const r = new Race(1234); r.start(); r.state = 'racing'; clear(r);
     for (let i = 0; i < 60 * 3; i++) r.step(DT, { ...GO, boost });
     return r.player.speed;
   };
@@ -186,6 +190,67 @@ console.log('\n== Off-track excursion ==');
   ok(worstN < CFG.car.OFF_LIMIT * race.t3.halfWidth + 1,
      'lateral offset stays inside the singular radius', `max |n| ${worstN.toFixed(1)} m`);
   ok(worstZ <= race.track.finishZ, 'cannot teleport past the finish', `max z ${worstZ.toFixed(0)}`);
+}
+
+console.log('\n== Solidity ==');
+{
+  const U = CFG.world.U;
+  const L = CFG.car.LENGTH;
+  const W = CFG.car.WIDTH_M;
+  const race = new Race(1234); race.start();
+  let playerOverlap = 0, aiOverlap = 0, frames = 0, worst = 0;
+
+  while (race.state !== 'finished' && frames < 60 * 120) {
+    race.step(DT, race.state === 'racing' ? drive(race) : { left: 0, right: 0, accel: 0, brake: 0 });
+    if (race.state !== 'racing') continue;
+    frames++;
+    const p = race.player;
+    for (const c of race.traffic.cars) {
+      const ds = Math.abs(p.s - c.z * U);
+      const dn = Math.abs(p.n - c.offset * race.t3.halfWidth);
+      if (ds < L && dn < W) { playerOverlap++; worst = Math.max(worst, Math.min(L - ds, W - dn)); break; }
+    }
+    const cars = race.traffic.cars;
+    outer: for (let a = 0; a < cars.length; a++) {
+      for (let b = a + 1; b < cars.length; b++) {
+        const ds = Math.abs(cars[a].z - cars[b].z) * U;
+        const dn = Math.abs(cars[a].offset - cars[b].offset) * race.t3.halfWidth;
+        if (ds < L && dn < W) { aiOverlap++; break outer; }
+      }
+    }
+  }
+  // Contact frames count as overlap until the separation resolves them, so a
+  // few percent is contact happening rather than cars passing through walls.
+  ok(playerOverlap / frames < 0.05, 'the player does not drive through traffic',
+     `${(playerOverlap / frames * 100).toFixed(1)}% of frames, worst ${worst.toFixed(2)}m`);
+  ok(worst < 0.4, 'contact is resolved, not interpenetrating', `worst ${worst.toFixed(2)}m`);
+  ok(aiOverlap / frames < 0.12, 'opponents do not drive through each other',
+     `${(aiOverlap / frames * 100).toFixed(1)}% of frames`);
+}
+
+console.log('\n== Cars sit on the road ==');
+{
+  // Mirrors the placement in main.js. rotateX(+atan(grade)) pitches the nose
+  // UP, and grade is positive uphill; the sign was inverted, which buried the
+  // nose 0.55m into the road on every slope.
+  const t3 = new Track3D(new Track(1234));
+  const L = CFG.car.LENGTH;
+  let worst = 0;
+  for (let s2 = 20; s2 < t3.length - 20; s2 += 3.1) {
+    const f = t3.surfaceAt(s2, 0, {});
+    const pitch = Math.atan(f.grade);
+    const fx = -Math.sin(f.yaw) * Math.cos(pitch);
+    const fy = Math.sin(pitch);
+    const fz = -Math.cos(f.yaw) * Math.cos(pitch);
+    for (const d of [-L / 2, L / 2]) {
+      const px = f.x + fx * d, py = f.y + fy * d, pz = f.z + fz * d;
+      const pr = t3.projectToTrack(px, py, pz, f.i);
+      const g = t3.surfaceAt(pr.s, pr.n, {});
+      worst = Math.max(worst, g.y - py);
+    }
+  }
+  ok(worst < 0.08, 'nose and tail stay above the road surface',
+     `worst ${worst.toFixed(3)}m buried (inverted sign gives 0.555m)`);
 }
 
 console.log('\n== Determinism ==');

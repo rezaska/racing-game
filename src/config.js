@@ -109,6 +109,8 @@ export const CFG = {
     BARRIER: 1.30,
     OFFROAD_TOP: 0.55,
     BUMP_KEEP: 0.72,
+    SIDESWIPE_KEEP: 0.93,    // a scrape costs little; it should not end a race
+    PUSH_APART: 0.55,        // share of the overlap resolved per frame
   },
 
   ai: {

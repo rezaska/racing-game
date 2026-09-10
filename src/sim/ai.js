@@ -72,7 +72,40 @@ export class Traffic {
       car.z = Math.min(car.z, (segs.length - 2) * R.SEGMENT_LENGTH);
     }
 
+    this.#separate();
     this.#rebucket();
+  }
+
+  // Opponents had no collision with each other at all, so half the time two of
+  // them were occupying the same piece of road. Pairwise, 14 cars is 91 tests a
+  // frame -- nothing.
+  #separate() {
+    const U = CFG.world.U;
+    const hw = CFG.road.WIDTH * U;
+    const L = CFG.car.LENGTH;
+    const W = CFG.car.WIDTH_M;
+    const cars = this.cars;
+
+    for (let i = 0; i < cars.length; i++) {
+      for (let j = i + 1; j < cars.length; j++) {
+        const a = cars[i];
+        const b = cars[j];
+        const ds = (a.z - b.z) * U;
+        const dn = (a.offset - b.offset) * hw;
+        const ovS = L - Math.abs(ds);
+        const ovN = W - Math.abs(dn);
+        if (ovS <= 0 || ovN <= 0) continue;
+
+        // Push apart sideways -- the only axis they can really use -- and have
+        // the trailing car lift off, so they separate instead of grinding.
+        const side = Math.sign(dn) || (i % 2 ? 1 : -1);
+        const push = (ovN * 0.5) / hw;
+        a.offset = clamp(a.offset + side * push, -0.95, 0.95);
+        b.offset = clamp(b.offset - side * push, -0.95, 0.95);
+        const behind = ds < 0 ? a : b;
+        behind.speed = Math.max(A.MIN_SPEED * 0.6, behind.speed * 0.982);
+      }
+    }
   }
 
   // Look a short way up the road; steer away from anything overlapping.

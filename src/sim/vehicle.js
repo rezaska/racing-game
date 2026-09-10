@@ -154,6 +154,10 @@ export class Vehicle {
       this.speed -= this.speed * 0.5 * dt;
     }
 
+    this.bump = Math.max(0, this.bump - dt * 3);
+    this.nearMiss = Math.max(0, this.nearMiss - dt * 2);
+    this.#traffic(traffic, dt);
+
     // The car is snapped back onto the (s, n) surface every frame, clamped.
     //
     // Testing |n| against a limit is not enough: the surface is parameterised
@@ -171,32 +175,65 @@ export class Vehicle {
     this.px = g.x; this.py = g.y; this.pz = g.z;
     this.x = t3.nToX(this.n);
 
-    this.bump = Math.max(0, this.bump - dt * 3);
-    this.nearMiss = Math.max(0, this.nearMiss - dt * 2);
-    this.#traffic(traffic, dt);
 
     if (!this.finished && this.z >= this.track.finishZ) this.finished = true;
   }
 
-  // Contact is a glancing scrape, never a race-ender. Passing close pays boost,
-  // which is what makes traffic something to dive at rather than avoid.
+  // Box-against-box in (s, n) metres.
+  //
+  // The old version scanned one segment either side -- 0.70 m -- for cars 4.4 m
+  // long, so it missed nearly every overlap and the player drove through
+  // traffic 19% of the time. The scan now covers a full car length, and the
+  // test is a real overlap on both axes rather than a lateral test that assumed
+  // "same segment" meant "same place".
   #traffic(traffic, dt) {
-    const w = C.HALF_WIDTH;
+    const t3 = this.t3;
+    const L = CFG.car.LENGTH;
+    const W = CFG.car.WIDTH_M;
+    const reach = Math.ceil(L / t3.ds) + 1;
     const segIdx = Math.floor(this.z / CFG.road.SEGMENT_LENGTH);
-    for (let i = segIdx - 1; i <= segIdx + 1; i++) {
+
+    for (let i = segIdx - reach; i <= segIdx + reach; i++) {
       const seg = this.track.segments[i];
       if (!seg) continue;
       for (const car of seg.cars) {
-        const gap = Math.abs(this.x - car.offset);
-        if (gap < w * 2.6 && gap > w * 1.5 && this.speed > car.speed * U) {
-          this.boost = Math.min(A.BOOST_MAX, this.boost + dt * A.BOOST_FROM_NEAR);
-          this.nearMiss = 1;
+        const cs = t3.zToS(car.z);
+        const cn = t3.xToN(car.offset);
+        const ds = this.s - cs;
+        const dn = this.n - cn;
+        const ovS = L - Math.abs(ds);
+        const ovN = W - Math.abs(dn);
+
+        if (ovS <= 0 || ovN <= 0) {
+          // Not touching. Passing close at speed pays boost, which is what
+          // makes traffic something to dive at rather than avoid.
+          if (Math.abs(ds) < L * 0.9 && Math.abs(dn) < W * 2.1) {
+            this.boost = Math.min(A.BOOST_MAX, this.boost + dt * A.BOOST_FROM_NEAR);
+            this.nearMiss = 1;
+          }
+          continue;
         }
-        if (this.speed <= car.speed * U) continue;
-        if (!overlap(this.x, w, car.offset, w, 0.85)) continue;
-        this.speed *= A.BUMP_KEEP;
-        const side = Math.sign(this.x - car.offset) || 1;
-        this.psi += side * 0.09;
+
+        // Separate along the axis of least penetration, so a side-swipe pushes
+        // sideways and a rear-end pushes back.
+        const carSpeed = car.speed * U;
+        if (ovN < ovS) {
+          const side = Math.sign(dn) || 1;
+          this.n += side * ovN * A.PUSH_APART;
+          car.offset -= (side * ovN * A.PUSH_APART * (1 - A.PUSH_APART)) / t3.halfWidth;
+          this.psi += side * 0.05;
+          this.speed *= A.SIDESWIPE_KEEP;
+        } else {
+          const ahead = ds < 0;                   // we are behind them
+          this.s -= Math.sign(ds || -1) * -ovS * A.PUSH_APART;
+          if (ahead && this.speed > carSpeed) {
+            this.speed = Math.max(carSpeed * A.BUMP_KEEP, this.speed * A.BUMP_KEEP);
+            car.speed = Math.min(CFG.ai.MAX_SPEED, car.speed * 1.04);
+          } else if (!ahead && carSpeed > this.speed) {
+            // Rear-ended by a faster car: a shove forward, not a stop.
+            this.speed = Math.max(this.speed, carSpeed * 0.9);
+          }
+        }
         this.bump = 1;
         traffic.bumped = 0.25;
         return;
