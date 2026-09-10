@@ -111,7 +111,7 @@ export class Post {
     const u = this.grade.uniforms;
     u.uTime.value += dt;
     // Only in the top half of the speed range, or it reads as a smear.
-    u.uBlur.value = THREE.MathUtils.smoothstep(speedPct, 0.55, 1.0) * 0.055;
+    u.uBlur.value = THREE.MathUtils.smoothstep(speedPct, 0.35, 1.0) * 0.075;
     if (vanishing) u.uCenter.value.copy(vanishing);
     this.composer.render(dt);
   }

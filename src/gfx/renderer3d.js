@@ -64,7 +64,7 @@ export class Renderer3D {
   #materials() {
     const art = CFG.art;
     return {
-      road: new THREE.MeshStandardMaterial({ color: art.roadColor, roughness: 0.82, metalness: 0.0, envMapIntensity: 0.55 }),
+      road: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, metalness: 0.0, envMapIntensity: 0.55 }),
       rumble: new THREE.MeshStandardMaterial({ color: art.rumbleLight, roughness: 0.75 }),
       shoulder: new THREE.MeshStandardMaterial({ color: art.terrainNear, roughness: 0.95 }),
       terrain: new THREE.MeshStandardMaterial({ color: art.terrainFar, roughness: 1.0, envMapIntensity: 0.4 }),
@@ -75,6 +75,18 @@ export class Renderer3D {
       post: new THREE.MeshStandardMaterial({ color: art.sceneryColor, roughness: 0.8, metalness: 0.3 }),
       hills: new THREE.MeshStandardMaterial({ color: art.terrainFar, roughness: 1.0, envMapIntensity: 0.25 }),
     };
+  }
+
+  // Base colour and markings are baked into the map, so the material tints
+  // white. Changing roadColor/lineColor needs the texture regenerating.
+  applyRoadTextures(tex) {
+    const m = this.materials.road;
+    m.map = tex.map;
+    m.normalMap = tex.normalMap;
+    m.roughnessMap = tex.roughnessMap;
+    m.normalScale.set(0.9, 0.9);
+    m.needsUpdate = true;
+    this.maxAnisotropy = tex.maxAnisotropy;
   }
 
   // Follow the car, and SNAP the frustum to whole shadow texels in light space.
@@ -108,7 +120,6 @@ export class Renderer3D {
     this.hemi.intensity = art.ambient;
     this.hemi.color.set(art.ambientSky);
     this.hemi.groundColor.set(art.ambientGround);
-    this.materials.road.color.set(art.roadColor);
     this.materials.rumble.color.set(art.rumbleLight);
     this.materials.shoulder.color.set(art.terrainNear);
     this.materials.terrain.color.set(art.terrainFar);

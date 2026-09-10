@@ -20,6 +20,12 @@
 <body>
   <canvas id="scene"></canvas>
 
+  <div id="loading">
+    <div class="lo-mark">Vanishing<span>Point</span></div>
+    <div class="lo-bar"><i></i></div>
+    <div class="lo-step">starting</div>
+  </div>
+
   <div id="hud" aria-hidden="true">
     <div class="pod pod-speed"><b data-speed>0</b><span>km/h</span></div>
     <div class="pod pod-pos"><span>pos</span><b data-place>15/15</b></div>
@@ -33,7 +39,7 @@
     <h1>Vanishing<span>Point</span></h1>
     <p class="tagline">A racing game that runs in a browser tab.<br>No engine. No art assets. No build step.</p>
     <button id="start" type="button">Press start</button>
-    <p class="hint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>&uarr;</kbd> throttle &middot; <kbd>&darr;</kbd> brake &middot; <kbd>R</kbd> new road</p>
+    <p class="hint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>&uarr;</kbd> throttle &middot; <kbd>&darr;</kbd> brake &middot; <kbd>R</kbd> new road &middot; <kbd>M</kbd> mute</p>
     <a class="scroll" href="#story">How it was made</a>
   </header>
 

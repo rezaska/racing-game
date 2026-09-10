@@ -351,3 +351,45 @@ kbd {
   color: #ffb4a2; background: var(--deeper);
   font: 12px/1.6 var(--mono); white-space: pre-wrap; overflow: auto;
 }
+
+/* ---------- loading ---------- */
+
+#loading {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2.2rem;
+  background: var(--deeper);
+  transition: opacity 0.7s ease, visibility 0.7s;
+}
+body.loaded #loading { opacity: 0; visibility: hidden; }
+
+.lo-mark {
+  font-size: clamp(1.6rem, 4vw, 2.6rem);
+  font-weight: 300;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.1;
+}
+.lo-mark span { display: block; font-weight: 700; letter-spacing: 0.14em; }
+
+.lo-bar { width: min(320px, 60vw); height: 1px; background: var(--line); }
+.lo-bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--amber);
+  transition: width 0.35s ease;
+}
+
+.lo-step {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-dim);
+}

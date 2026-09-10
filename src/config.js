@@ -65,7 +65,7 @@ export const CFG = {
 
     // --- handling ---
     STEER_MAX: 0.55,        // rad at the road wheel (31 deg)
-    STEER_TAU: 0.14,        // steering lag; instant steering feels twitchy
+    STEER_TAU: 0.10,        // steering lag; instant steering feels twitchy
     A_FRONT: 1.30,          // CoM to front axle, m
     B_REAR: 1.30,
     MU_ROAD: 1.45,
@@ -160,10 +160,10 @@ export const CFG = {
     fogColor: '#d9683f',
     fogDensity: 0.0035,     // denser than realism, so distance dissolves
 
-    roadColor: '#514a5e',
+    roadColor: '#5d5568',
     rumbleLight: '#c8bfae',
     rumbleDark: '#7a2f34',
-    lineColor: '#e8dcc0',
+    lineColor: '#f6efe2',
     terrainNear: '#241d2e',
     terrainFar: '#0d0a14',
     sceneryColor: '#0f0c16',
@@ -183,8 +183,8 @@ export const CFG = {
   },
 
   render: {
-    FOV_MIN: 62,
-    FOV_MAX: 78,
+    FOV_MIN: 58,
+    FOV_MAX: 86,
     NEAR: 0.5,
     FAR: 1500,
     SHADOW_MAP: 2048,
@@ -199,6 +199,8 @@ export const CFG = {
     DRAW_DISTANCE: 900,     // metres of track geometry kept resident
   },
 
+  // Lower and closer than is comfortable to compose a still with, because
+  // proximity to the ground is most of what makes speed legible in motion.
   camera: {
     TAU_ANCHOR: 0.08,
     TAU_YAW: 0.22,          // the single most important camera number
@@ -206,10 +208,10 @@ export const CFG = {
     TAU_LOOK: 0.18,
     TAU_FOV: 0.35,
     TAU_ROLL: 0.25,
-    BACK: 6.2,
-    BACK_SPEED: 2.0,
-    UP: 2.1,
-    UP_SPEED: 0.35,
+    BACK: 5.3,
+    BACK_SPEED: 1.5,
+    UP: 1.62,
+    UP_SPEED: 0.28,
     LOOKAHEAD_S: 1.15,      // seconds of travel to look ahead
     LOOKAHEAD_MIN: 12,
     LOOKAHEAD_MAX: 55,

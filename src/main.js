@@ -9,6 +9,8 @@ import { ChaseCam } from './gfx/chasecam.js';
 import { buildRoadChunks, cullChunks } from './world/roadmesh.js';
 import { buildScenery } from './world/scenery.js';
 import { buildGuardrails, contactShadowTexture, contactShadow } from './world/guardrail.js';
+import { buildRoadTextures } from './world/textures.js';
+import { Sound } from './audio/sound.js';
 import { buildCarModel, updateWheels } from './gfx/carmodel.js';
 import { Hud } from './gfx/hud.js';
 import { mountArtPanel } from './gfx/artpanel.js';
@@ -30,6 +32,7 @@ const input = new Input();
 
 let race, t3, road, scenery, rails, hills, cars, aiPrev;
 const shadowTex = contactShadowTexture();
+const sound = new Sound();
 
 // A ring of low ridges far enough out that fog does most of the work, but close
 // enough to give the horizon a silhouette instead of a hard edge.
@@ -94,11 +97,49 @@ function build(seed) {
 
 const cam = new ChaseCam(gfx.camera, null);
 const hud = new Hud(document.getElementById('hud'));
-build(seedFromHash());
+
+const loadEl = document.getElementById('loading');
+const loadBar = loadEl?.querySelector('.lo-bar i');
+const loadStep = loadEl?.querySelector('.lo-step');
+const setProgress = (p, label) => {
+  if (loadBar) loadBar.style.width = `${Math.round(p * 100)}%`;
+  if (loadStep) loadStep.textContent = label;
+};
+// Yield via a timer, not requestAnimationFrame: rAF does not run in a
+// background tab or under a headless browser's virtual clock, and boot would
+// simply never finish there.
+// In capture mode boot synchronously: a headless screenshot fires at the load
+// event, so anything produced after an await simply is not in the picture.
+const SHOT = params.has('shot');
+const nextFrame = () => (SHOT ? Promise.resolve() : new Promise((r) => setTimeout(r, 16)));
+
+async function boot() {
+  setProgress(0.08, 'generating road surface');
+  await nextFrame();
+  gfx.applyRoadTextures(buildRoadTextures(gfx.renderer));
+
+  setProgress(0.45, 'building the course');
+  await nextFrame();
+  build(seedFromHash());
+
+  setProgress(0.75, 'compiling shaders');
+  await nextFrame();
+  // Warm every material now. three compiles a program the first time a
+  // material/light/fog combination is drawn, which otherwise lands as a
+  // ~200ms freeze partway through the first lap.
+  gfx.renderer.compile(gfx.scene, gfx.camera);
+
+  setProgress(1, 'ready');
+  await nextFrame();
+  document.body.classList.add('loaded');
+}
 
 // --- page <-> game ---
 function enterRace() {
   if (race.state !== 'attract') return;
+  // Same gesture that starts the race unlocks audio; browsers will not let it
+  // start any other way.
+  sound.start();
   race.start();
   document.body.classList.add('playing');
   window.scrollTo({ top: 0, behavior: 'instant' });
@@ -110,6 +151,7 @@ function leaveRace() {
 document.getElementById('start').addEventListener('click', enterRace);
 addEventListener('keydown', (e) => {
   if (e.code === 'Escape') leaveRace();
+  else if (e.code === 'KeyM') sound.toggleMute();
   // Only take over the keyboard once the page is out of the way.
   else if (document.body.classList.contains('playing') && e.code === 'KeyR') {
     build((Math.random() * 0xffffffff) >>> 0);
@@ -120,13 +162,11 @@ addEventListener('keydown', (e) => {
 if (params.has('art')) {
   mountArtPanel(() => { gfx.syncArt(); });
 }
-if (params.has('play')) enterRace();
 
-// Photo mode: strip every overlay so stills show the render alone. Used for the
-// landing page imagery and for judging the art direction without the type on
-// top of it.
-if (params.has('shot')) {
-  for (const id of ['hero', 'story', 'hud']) {
+
+// Photo mode: strip every overlay so stills show the render alone.
+function photoMode() {
+  for (const id of ['hero', 'story', 'hud', 'loading']) {
     const el = document.getElementById(id);
     if (el) el.style.display = 'none';
   }
@@ -210,8 +250,9 @@ let lastVx = 0;
 // mode drives itself, so this yields a real mid-track view without an
 // autopilot -- and headless browsers only fire a couple of animation frames, so
 // screenshots have to arrive this way.
-const warp = Number(params.get('warp') || 0);
-if (warp > 0) {
+function runWarp() {
+  const warp = Number(params.get('warp') || 0);
+  if (warp <= 0) return;
   const idle = { left: false, right: false, accel: false, brake: false };
   const wrapAng = (a) => Math.atan2(Math.sin(a), Math.cos(a));
   // When warping into a race, drive it -- otherwise a still shows a car
@@ -237,6 +278,35 @@ if (warp > 0) {
   cullChunks(rails, st0, t3.ds);
   cam.update(carState, 0.5);
   for (let i = 0; i < 40; i++) cam.update(carState, CFG.DT);
+}
+
+// Benchmark hook: render N frames back to back, forcing a GPU sync each time so
+// the number is real work and not just queued commands.
+const bench = Number(params.get('bench') || 0);
+if (bench > 0) {
+  const gl = gfx.renderer.getContext();
+  const idle = { left: false, right: false, accel: true, brake: false };
+  for (let i = 0; i < 20; i++) { race.step(CFG.DT, idle); sync(CFG.DT); cam.update(carState, CFG.DT); gfx.render(CFG.DT, 0.5); }
+  gl.finish();
+  const times = [];
+  for (let i = 0; i < bench; i++) {
+    const t0 = performance.now();
+    race.step(CFG.DT, idle);
+    updateBody(CFG.DT);
+    sync(CFG.DT);
+    const st = race.player.s / t3.ds;
+    cullChunks(road, st, t3.ds); cullChunks(scenery, st, t3.ds); cullChunks(rails, st, t3.ds);
+    cam.update(carState, CFG.DT);
+    gfx.updateSun(carState.position);
+    gfx.render(CFG.DT, carState.speedPct);
+    gl.finish();
+    times.push(performance.now() - t0);
+  }
+  times.sort((a, b) => a - b);
+  const med = times[times.length >> 1];
+  const p95 = times[Math.floor(times.length * 0.95)];
+  const info = gfx.renderer.info.render;
+  document.title = `BENCH med=${med.toFixed(2)}ms p95=${p95.toFixed(2)}ms fps=${(1000 / med).toFixed(0)} calls=${info.calls} tris=${info.triangles} dpr=${gfx.renderer.getPixelRatio().toFixed(2)}`;
 }
 
 let acc = 0;
@@ -269,11 +339,28 @@ function frame(now) {
   cam.update(carState, Math.max(1 / 240, ft));
   if (hills) hills.position.set(carState.position.x, 0, carState.position.z);
   gfx.updateSun(carState.position);
+  const pl = race.player;
+  sound.update(
+    Math.abs(pl.vx), held.accel ? 1 : 0, held.brake ? 1 : 0,
+    pl.slip, pl.offroad, race.state === 'racing' || race.state === 'countdown',
+  );
   hud.update(race);
   gfx.render(ft, carState.speedPct);
   gfx.adapt(performance.now() - t0);
   requestAnimationFrame(frame);
 }
+await boot();
+if (params.has('shot')) photoMode();
+if (params.has('play') || params.has('shot')) enterRace();
+runWarp();
+// Draw one frame synchronously before handing over to rAF. Without this a
+// headless capture gets nothing: the boot's timer yields consume the virtual
+// clock, and no animation frame is ever delivered afterwards.
+sync(CFG.DT);
+cam.update(carState, CFG.DT);
+gfx.updateSun(carState.position);
+gfx.render(CFG.DT, carState.speedPct);
+last = performance.now();
 requestAnimationFrame(frame);
 
 window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, carState, build };
