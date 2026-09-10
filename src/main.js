@@ -12,6 +12,7 @@ import { buildGuardrails, contactShadowTexture, contactShadow } from './world/gu
 import { buildRoadTextures } from './world/textures.js';
 import { Sound } from './audio/sound.js';
 import { buildCarModel, updateWheels } from './gfx/carmodel.js';
+import { loadCarFactory, updateModelWheels } from './gfx/carload.js';
 import { Hud } from './gfx/hud.js';
 import { mountArtPanel } from './gfx/artpanel.js';
 
@@ -31,6 +32,9 @@ const gfx = new Renderer3D(canvas);
 const input = new Input();
 
 let race, t3, road, scenery, rails, hills, cars, aiPrev;
+// Swappable car source: procedural by default, any glTF via ?car=<url>.
+let makeCar = buildCarModel;
+let spinWheels = updateWheels;
 const shadowTex = contactShadowTexture();
 const sound = new Sound();
 
@@ -79,9 +83,9 @@ function build(seed) {
   // shapes with a rim, not as bright spots competing with the player's car.
   const liveries = ['#7a4a52', '#4a5a7a', '#7a6a44', '#4a7a5e', '#63487a', '#7a5240', '#40707a', '#7a4470'];
   cars = {
-    player: buildCarModel(CFG.art.playerColor, { player: true }),
+    player: makeCar(CFG.art.playerColor, { player: true }),
     group: [],
-    ai: race.traffic.cars.map((c, i) => buildCarModel(liveries[i % liveries.length])),
+    ai: race.traffic.cars.map((c, i) => makeCar(liveries[i % liveries.length])),
   };
   cars.group = [cars.player, ...cars.ai];
   aiPrev = race.traffic.cars.map((c) => ({ s: t3.zToS(c.z), n: t3.xToN(c.offset) }));
@@ -118,6 +122,22 @@ async function boot() {
   await nextFrame();
   gfx.applyRoadTextures(buildRoadTextures(gfx.renderer));
 
+  // ?car=<url>, or ?car=ferrari for the three.js sample model.
+  const carParam = params.get('car');
+  if (carParam) {
+    setProgress(0.25, 'loading car model');
+    await nextFrame();
+    const url = carParam === 'ferrari'
+      ? 'https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb'
+      : carParam;
+    try {
+      makeCar = await loadCarFactory(url);
+      spinWheels = updateModelWheels;
+    } catch (err) {
+      console.warn('car model failed to load, using the built-in one:', err);
+    }
+  }
+
   setProgress(0.45, 'building the course');
   await nextFrame();
   build(seedFromHash());
@@ -132,6 +152,11 @@ async function boot() {
   setProgress(1, 'ready');
   await nextFrame();
   document.body.classList.add('loaded');
+  // Diagnostic hook: says which car source is live and whether its wheels were
+  // found, which is the thing that silently fails with a downloaded model.
+  const w = cars?.player?.userData?.wheels?.length ?? 0;
+  window.__ready = { car: makeCar === buildCarModel ? 'procedural' : 'gltf', wheels: w };
+  if (params.has('probe')) document.title = `READY car=${window.__ready.car} wheels=${w}`;
 }
 
 // --- page <-> game ---
@@ -229,10 +254,10 @@ function sync(dt) {
   carState.speedPct = p.speedPct;
   carState.lateralG = p.lateralG;
 
-  updateWheels(cars.player, p.vx, p.delta, dt);
+  spinWheels(cars.player, p.vx, p.delta, dt);
   race.traffic.cars.forEach((c, i) => {
     placeAI(cars.ai[i], c, i);
-    updateWheels(cars.ai[i], c.speed * CFG.world.U, 0, dt);
+    spinWheels(cars.ai[i], c.speed * CFG.world.U, 0, dt);
   });
 }
 
