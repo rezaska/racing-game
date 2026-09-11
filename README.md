@@ -44,6 +44,7 @@ shared by copying the link.
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
 | `?car=<url>` | load the cars from any glTF/GLB |
 | `?car=none` | force the built-in procedural car |
+| `?fps=0` | remove the 60 fps cap and present at the display's refresh rate |
 | `?play=1` | skip the title screen |
 | `?warp=20` | run the simulation forward before the first frame (for stills) |
 | `?shadow=512` | smaller shadow map, for software rendering |
@@ -101,6 +102,21 @@ cannot silently break race logic without a test failing.
 ```sh
 node test/sim.test.mjs
 ```
+
+### Sixty frames a second, on purpose
+
+The simulation is fixed at 60 Hz and the presented frame rate is capped to
+match, by rendering on every Nth vsync -- never by comparing elapsed time
+against an interval, which beats against the display's own cadence and causes
+the uneven pacing it is meant to prevent. N comes from the measured refresh
+rate, so an external monitor plugged in mid-race re-paces rather than halving
+the frame rate, and it is floored so the cap can never present below its
+target: a 144 Hz display gets an even 72 rather than a lurching 60.
+
+The cap is a power decision, not a smoothness one. Uncapped requestAnimationFrame
+is already perfectly vsync-paced, and render interpolation already handles a
+display that does not run at 60 Hz. What it buys is halved GPU work on a 120 Hz
+laptop; what it costs is half the motion resolution there. `?fps=0` to compare.
 
 ### Testing the thing a screenshot cannot see
 

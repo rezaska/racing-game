@@ -18,6 +18,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { paceDivisor, refreshHz } from '../src/gfx/pace.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8231;
@@ -100,6 +101,42 @@ const check = (name, ok, detail) => {
   console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  ${detail}` : ''}`);
   if (!ok) fails++;
 };
+
+// --- Frame pacing, pure and headless ---------------------------------------
+console.log('\n== Frame pacing ==');
+check('60 Hz display renders every vsync', paceDivisor(60, 60) === 1);
+check('120 Hz display renders every second vsync', paceDivisor(120, 60) === 2);
+check('240 Hz display renders every fourth vsync', paceDivisor(240, 60) === 4);
+// A display never reports its nominal rate exactly, and 119.8 / 60 = 1.997 --
+// a bare floor() would give a divisor of 1 and no cap at all.
+check('a refresh measured a hair under nominal still caps',
+  paceDivisor(119.8, 60) === 2 && paceDivisor(59.8, 60) === 1);
+check('an uncapped target renders every vsync', paceDivisor(120, 0) === 1);
+
+// The important property, and the reason this uses floor rather than round:
+// capping must never meaningfully undershoot. At 90 Hz, round(1.5) would give
+// a divisor of 2 and the game would run at 45. The 1% floor is the measurement
+// slack that lets a display reporting 119.8 Hz still cap to 2.
+let under = [], worst = 60;
+for (let hz = 60; hz <= 260; hz += 0.1) {
+  const got = hz / paceDivisor(hz, 60);
+  worst = Math.min(worst, got);
+  if (got < 60 * 0.99) under.push(`${hz.toFixed(1)}Hz -> ${got.toFixed(1)}fps`);
+}
+check('never presents below the target on any refresh rate 60-260 Hz',
+  under.length === 0, under.length ? under.slice(0, 3).join(', ') : `worst ${worst.toFixed(1)} fps`);
+check('144 Hz paces evenly at 72 rather than lurching at 60',
+  paceDivisor(144, 60) === 2, `${(144 / paceDivisor(144, 60)).toFixed(0)} fps`);
+
+// Median, not mean: one 500 ms frame from a garbage collection would drag a
+// mean far enough to change the divisor, and a divisor changing mid-race is
+// itself a visible hitch.
+const gaps = new Array(24).fill(1000 / 120);
+gaps[7] = 500;
+check('one stalled frame does not move the refresh estimate',
+  paceDivisor(refreshHz(gaps), 60) === 2, `${refreshHz(gaps).toFixed(1)} Hz`);
+check('too few samples report nothing rather than a guess',
+  refreshHz([16.7, 16.7, 16.7]) === 0);
 
 await new Promise((r) => server.listen(PORT, '127.0.0.1', r));
 const chrome = spawn(CHROME, [

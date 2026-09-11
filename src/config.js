@@ -214,6 +214,14 @@ export const CFG = {
     SHADOW_FAR: 340,
     SHADOW_BIAS: -0.0006,
     SHADOW_NORMAL_BIAS: 0.035,  // grazing sun makes acne much worse
+    // Present at most this many frames per second, by rendering on every Nth
+    // vsync (see gfx/pace.js). ?fps=0 removes the cap, ?fps=120 raises it.
+    //
+    // This is a power decision, not a smoothness one. Uncapped rAF is already
+    // perfectly vsync-paced, and render interpolation already handles a display
+    // that does not run at the simulation's 60 Hz -- so the cap buys halved GPU
+    // work on a 120 Hz laptop and costs half the motion resolution there.
+    TARGET_FPS: 60,
     PIXEL_RATIO_MAX: 1.5,
     PIXEL_RATIO_MIN: 0.75,
     FRAME_BUDGET_MS: 18,

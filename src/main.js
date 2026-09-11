@@ -15,6 +15,7 @@ import { buildCarModel, updateWheels } from './gfx/carmodel.js';
 import { loadCarFactory, updateModelWheels } from './gfx/carload.js';
 import { Hud } from './gfx/hud.js';
 import { mountArtPanel } from './gfx/artpanel.js';
+import { paceDivisor, refreshHz } from './gfx/pace.js';
 
 function seedFromHash() {
   const m = /seed=([^&]+)/.exec(location.hash);
@@ -413,6 +414,16 @@ if (bench > 0) {
 let acc = 0;
 let last = performance.now();
 
+// --- Frame pacing ----------------------------------------------------------
+// rAF fires once per vsync. To present at TARGET_FPS we render on every Nth of
+// them, with N re-derived from the measured refresh rate -- so plugging in an
+// external monitor mid-race re-paces instead of halving the frame rate.
+const targetFps = Number(params.get('fps') ?? CFG.render.TARGET_FPS);
+const vsyncGaps = new Array(24).fill(0);
+let vsyncN = 0;
+let lastVsync = performance.now();
+let divisor = 1;
+
 // Everything a frame does except drawing it. Split out from frame() so that a
 // test can drive the real loop at an arbitrary, irregular cadence and measure
 // how steady the camera is -- which is not something a screenshot can show.
@@ -440,6 +451,20 @@ function advance(ft, held) {
 }
 
 function frame(now) {
+  requestAnimationFrame(frame);
+
+  // Measure every vsync, including the ones this frame will not render on.
+  vsyncGaps[vsyncN % vsyncGaps.length] = now - lastVsync;
+  lastVsync = now;
+  vsyncN++;
+  if (targetFps > 0) {
+    if (vsyncN % 30 === 0) {
+      const hz = refreshHz(vsyncGaps);
+      if (hz) divisor = paceDivisor(hz, targetFps);
+    }
+    if (vsyncN % divisor !== 0) return;
+  }
+
   const t0 = now;
   let ft = (now - last) / 1000;
   last = now;
@@ -455,7 +480,6 @@ function frame(now) {
   hud.update(race);
   gfx.render(ft, carState.speedPct);
   gfx.adapt(performance.now() - t0);
-  requestAnimationFrame(frame);
 }
 await boot();
 if (params.has('shot')) photoMode();
