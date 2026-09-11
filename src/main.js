@@ -201,6 +201,16 @@ function photoMode() {
   document.body.classList.add('playing');
 }
 
+// Third-party asset credit, wherever it comes from.
+{
+  const text = params.get('credit') || CFG.credits.car;
+  const el = document.querySelector('[data-credit]');
+  if (el && text) {
+    const url = CFG.credits.carUrl;
+    el.innerHTML = url ? `Car model: <a href="${url}">${text}</a>` : `Car model: ${text}`;
+  }
+}
+
 window.addEventListener('resize', () => gfx.resize());
 
 const f = {};

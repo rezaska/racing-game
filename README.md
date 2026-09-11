@@ -41,10 +41,41 @@ shared by copying the link.
 | --- | --- |
 | `#seed=1234` | pick a course; the same seed always builds the same road |
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
+| `?car=<url>` | load the cars from any glTF/GLB instead of the built-in model |
 | `?play=1` | skip the title screen |
 | `?warp=20` | run the simulation forward before the first frame (for stills) |
 | `?shadow=512` | smaller shadow map, for software rendering |
 | `?post=0` | disable post-processing |
+
+## Using your own car model
+
+```
+?car=cars/mycar.glb
+```
+
+Applies to every car on the grid. The loader scales the model to the length the
+simulation assumes, sits it on the ground, centres it, clones its materials so a
+livery on one car does not repaint the field, and binds the wheels for spin and
+steering.
+
+What a model needs:
+
+- **Wheels as separate meshes.** Named `*_fl/_fr/_rl/_rr` ideally, but failing
+  that they are found geometrically — low to the ground, outboard, small and
+  roundish — so unhelpful names like `Circle.003` are fine. Wheels *merged into
+  the body mesh* cannot be found by anything and will not turn.
+- **Under ~30k triangles** if every car uses it; a hero model for the player
+  alone can be much heavier.
+- **A body material** to recolour per livery. Matched by name (`body`, `paint`,
+  `chassis`) or, failing that, the largest material that is not glass, rubber,
+  lights or trim.
+
+Set `credits.car` in `config.js` for anything requiring attribution; it renders
+in the page footer.
+
+```sh
+node test/model.test.mjs
+```
 
 ## How it is put together
 

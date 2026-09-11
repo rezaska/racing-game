@@ -2,3 +2,4 @@
 _*.glb
 _car.html
 _probe.html
+node_modules/

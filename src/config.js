@@ -136,6 +136,13 @@ export const CFG = {
     COUNTDOWN: 3.6,
   },
 
+  // Attribution for any third-party asset in use. A CC-BY model requires
+  // credit; this is where it gets discharged, and it renders in the footer.
+  credits: {
+    car: '',        // e.g. "Cyberpunk car by 4d_Bob (CC BY)"
+    carUrl: '',
+  },
+
   // --- look. Everything here is live-editable via ?art=1 ---
   art: {
     // One low sun, behind and slightly left, so shadows stretch toward the
