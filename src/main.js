@@ -31,7 +31,7 @@ const canvas = document.getElementById('scene');
 const gfx = new Renderer3D(canvas);
 const input = new Input();
 
-let race, t3, road, scenery, rails, hills, cars, aiPrev;
+let race, t3, road, scenery, rails, hills, cars;
 // Swappable car source: procedural by default, any glTF via ?car=<url>.
 let makeCar = buildCarModel;
 let spinWheels = updateWheels;
@@ -88,7 +88,12 @@ function build(seed) {
     ai: race.traffic.cars.map((c, i) => makeCar(liveries[i % liveries.length])),
   };
   cars.group = [cars.player, ...cars.ai];
-  aiPrev = race.traffic.cars.map((c) => ({ s: t3.zToS(c.z), n: t3.xToN(c.offset) }));
+  snapPrev = makeSnap(race.traffic.cars.length);
+  snapCur = makeSnap(race.traffic.cars.length);
+  bodyRoll = bodyPitch = 0;
+  lastVx = race.player.vx;
+  writeSnap(snapCur, snapCur);   // itself as previous: zero crab on the grid
+  writeSnap(snapPrev, snapCur);
   cars.group.forEach((c) => {
     c.add(contactShadow(shadowTex));
     gfx.scene.add(c);
@@ -223,54 +228,112 @@ const carState = {
 };
 
 // AI cars stay in legacy (z, offset) units and are converted only for display.
-// The lateral RATE has to go into their heading or they visibly crab sideways
-// through every lane change.
-function placeAI(obj, car, i) {
-  const s = t3.zToS(car.z);
-  const n = t3.xToN(car.offset);
+// `crab` is the lateral RATE folded into their heading -- without it they
+// visibly slide sideways through every lane change -- and it is measured over a
+// fixed simulation step, never over a frame time (see writeSnap).
+function placeAI(obj, s, n, crab) {
   t3.surfaceAt(s, n, f);
   obj.position.set(f.x, f.y, f.z);
-  const prev = aiPrev[i];
-  const ds = Math.max(0.01, s - prev.s);
-  const yaw = f.yaw + Math.atan2(-(n - prev.n), ds);
-  prev.s = s; prev.n = n;
   obj.rotation.set(0, 0, 0);
-  obj.rotateY(yaw);
+  obj.rotateY(f.yaw + crab);
   obj.rotateZ(f.bank);
   // +, not -: rotateX(+t) pitches the nose UP, and grade is positive uphill.
   obj.rotateX(Math.atan(f.grade));
-  return f;
 }
 
-function sync(dt) {
+// --- Render interpolation --------------------------------------------------
+// The simulation runs at a fixed 60 Hz; the display does not. Reading the sim
+// once per rendered frame therefore samples a staircase: a frame that happens
+// to run no step draws the car exactly where the previous one did, and a frame
+// that runs two jumps double. At 150 km/h a step is 0.69 m, so that is a 0.69 m
+// stutter at irregular intervals -- and on a 120 Hz display it is every other
+// frame, forever. Everything smooth downstream was being fed from it: the
+// camera's damping, the body-pitch derivative, the AI crab angle.
+//
+// The fix is to snapshot the few sim quantities the renderer reads, keep the
+// previous snapshot, and interpolate by alpha = acc / DT. Interpolation happens
+// in TRACK space (s, n, psi), not world space, so the result is still exactly
+// on the road surface however the road is banked or crowned.
+let snapPrev, snapCur;
+
+const makeSnap = (n) => ({
+  s: 0, n: 0, psi: 0, vx: 0, vy: 0, speedPct: 0, lateralG: 0, roll: 0, pitch: 0,
+  ai: Array.from({ length: n }, () => ({ s: 0, n: 0, crab: 0 })),
+});
+
+// `prev` is passed in rather than read from `dst`, because the two snapshot
+// buffers are swapped each step -- `dst` holds the state from TWO steps ago.
+function writeSnap(dst, prev) {
   const p = race.player;
+  dst.s = p.s; dst.n = p.n; dst.psi = p.psi;
+  dst.vx = p.vx; dst.vy = p.vy;
+  dst.speedPct = p.speedPct; dst.lateralG = p.lateralG;
+  dst.roll = bodyRoll; dst.pitch = bodyPitch;
+  const traffic = race.traffic.cars;
+  for (let i = 0; i < traffic.length; i++) {
+    const a = dst.ai[i], b = prev.ai[i];
+    a.s = t3.zToS(traffic[i].z);
+    a.n = t3.xToN(traffic[i].offset);
+    a.crab = Math.atan2(-(a.n - b.n), Math.max(0.01, a.s - b.s));
+  }
+}
+
+// One simulation step, and the snapshot that goes with it. Body attitude is
+// updated in here, not once per frame: updateBody differentiates speed, and a
+// derivative taken over a frame time against a value that only changes on a
+// simulation step alternates between zero and double every frame.
+function stepOnce(input) {
+  const tmp = snapPrev; snapPrev = snapCur; snapCur = tmp;  // overwrite the older
+  race.step(CFG.DT, input);
+  updateBody(CFG.DT);
+  writeSnap(snapCur, snapPrev);
+}
+
+const mix = (a, b, t) => a + (b - a) * t;
+// Heading wraps at +/-pi; lerping it naively spins the car the long way round.
+function mixAngle(a, b, t) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return a + d * t;
+}
+
+// `alpha` is how far this frame falls between the last two simulation steps.
+function sync(dt, alpha) {
+  const a = snapPrev, b = snapCur;
+  const s = mix(a.s, b.s, alpha);
+  const n = mix(a.n, b.n, alpha);
+  const psi = mixAngle(a.psi, b.psi, alpha);
+  const vx = mix(a.vx, b.vx, alpha), vy = mix(a.vy, b.vy, alpha);
 
   // The player sits on the road surface at its projected position, but points
   // along its OWN heading -- that difference between where the car is going and
   // where it is aimed is the whole feel of driving.
-  t3.surfaceAt(p.s, p.n, f);
+  t3.surfaceAt(s, n, f);
   const car = cars.player;
   car.position.set(f.x, f.y, f.z);
   car.rotation.set(0, 0, 0);
-  car.rotateY(p.psi);
-  car.rotateZ(f.bank + bodyRoll);
-  car.rotateX(Math.atan(f.grade) + bodyPitch);
+  car.rotateY(psi);
+  car.rotateZ(f.bank + mix(a.roll, b.roll, alpha));
+  car.rotateX(Math.atan(f.grade) + mix(a.pitch, b.pitch, alpha));
 
   carState.position.set(f.x, f.y, f.z);
-  const sinP = Math.sin(p.psi), cosP = Math.cos(p.psi);
+  const sinP = Math.sin(psi), cosP = Math.cos(psi);
   carState.velocity.set(
-    -sinP * p.vx - cosP * p.vy, 0,
-    -cosP * p.vx + sinP * p.vy,
+    -sinP * vx - cosP * vy, 0,
+    -cosP * vx + sinP * vy,
   );
-  carState.s = p.s;
-  carState.speedPct = p.speedPct;
-  carState.lateralG = p.lateralG;
+  carState.s = s;
+  carState.speedPct = mix(a.speedPct, b.speedPct, alpha);
+  carState.lateralG = mix(a.lateralG, b.lateralG, alpha);
 
-  spinWheels(cars.player, p.vx, p.delta, dt);
-  race.traffic.cars.forEach((c, i) => {
-    placeAI(cars.ai[i], c, i);
-    spinWheels(cars.ai[i], c.speed * CFG.world.U, 0, dt);
-  });
+  spinWheels(cars.player, vx, race.player.delta, dt);
+  for (let i = 0; i < cars.ai.length; i++) {
+    const pa = a.ai[i], pb = b.ai[i];
+    placeAI(cars.ai[i], mix(pa.s, pb.s, alpha), mix(pa.n, pb.n, alpha),
+            mixAngle(pa.crab, pb.crab, alpha));
+    spinWheels(cars.ai[i], race.traffic.cars[i].speed * CFG.world.U, 0, dt);
+  }
 }
 
 // Body attitude. Roll and pitch from acceleration are the single biggest cue
@@ -308,10 +371,9 @@ function runWarp() {
     };
   };
   for (let i = 0; i < Math.round(warp / CFG.DT); i++) {
-    race.step(CFG.DT, race.state === 'racing' ? autopilot() : idle);
+    stepOnce(race.state === 'racing' ? autopilot() : idle);
   }
-  updateBody(CFG.DT);
-  sync(CFG.DT);
+  sync(CFG.DT, 1);
   const st0 = race.player.s / t3.ds;
   cullChunks(road, st0, t3.ds);
   cullChunks(scenery, st0, t3.ds);
@@ -326,14 +388,13 @@ const bench = Number(params.get('bench') || 0);
 if (bench > 0) {
   const gl = gfx.renderer.getContext();
   const idle = { left: false, right: false, accel: true, brake: false };
-  for (let i = 0; i < 20; i++) { race.step(CFG.DT, idle); sync(CFG.DT); cam.update(carState, CFG.DT); gfx.render(CFG.DT, 0.5); }
+  for (let i = 0; i < 20; i++) { stepOnce(idle); sync(CFG.DT, 1); cam.update(carState, CFG.DT); gfx.render(CFG.DT, 0.5); }
   gl.finish();
   const times = [];
   for (let i = 0; i < bench; i++) {
     const t0 = performance.now();
-    race.step(CFG.DT, idle);
-    updateBody(CFG.DT);
-    sync(CFG.DT);
+    stepOnce(idle);
+    sync(CFG.DT, 1);
     const st = race.player.s / t3.ds;
     cullChunks(road, st, t3.ds); cullChunks(scenery, st, t3.ds); cullChunks(rails, st, t3.ds);
     cam.update(carState, CFG.DT);
@@ -352,33 +413,40 @@ if (bench > 0) {
 let acc = 0;
 let last = performance.now();
 
+// Everything a frame does except drawing it. Split out from frame() so that a
+// test can drive the real loop at an arbitrary, irregular cadence and measure
+// how steady the camera is -- which is not something a screenshot can show.
+function advance(ft, held) {
+  acc += ft;
+  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) enterRace();
+
+  let steps = 0;
+  while (acc >= CFG.DT && steps < 6) {
+    stepOnce(held);
+    acc -= CFG.DT;
+    steps++;
+  }
+  if (steps === 6) acc = 0;
+
+  const dt = Math.max(1 / 240, ft);
+  sync(dt, acc / CFG.DT);
+  const st = race.player.s / t3.ds;
+  cullChunks(road, st, t3.ds);
+  cullChunks(scenery, st, t3.ds);
+  cullChunks(rails, st, t3.ds);
+  cam.update(carState, dt);
+  if (hills) hills.position.set(carState.position.x, 0, carState.position.z);
+  gfx.updateSun(carState.position);
+}
+
 function frame(now) {
   const t0 = now;
   let ft = (now - last) / 1000;
   last = now;
   if (ft > 0.25) ft = 0.25;
 
-  acc += ft;
   const held = input.poll();
-  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) enterRace();
-
-  let steps = 0;
-  while (acc >= CFG.DT && steps < 6) {
-    race.step(CFG.DT, held);
-    acc -= CFG.DT;
-    steps++;
-  }
-  if (steps === 6) acc = 0;
-
-  updateBody(Math.max(1 / 240, ft));
-  sync(Math.max(1 / 240, ft));
-  const st = race.player.s / t3.ds;
-  cullChunks(road, st, t3.ds);
-  cullChunks(scenery, st, t3.ds);
-  cullChunks(rails, st, t3.ds);
-  cam.update(carState, Math.max(1 / 240, ft));
-  if (hills) hills.position.set(carState.position.x, 0, carState.position.z);
-  gfx.updateSun(carState.position);
+  advance(ft, held);
   const pl = race.player;
   sound.update(
     Math.abs(pl.vx), held.accel ? 1 : 0, held.brake ? 1 : 0,
@@ -396,11 +464,11 @@ runWarp();
 // Draw one frame synchronously before handing over to rAF. Without this a
 // headless capture gets nothing: the boot's timer yields consume the virtual
 // clock, and no animation frame is ever delivered afterwards.
-sync(CFG.DT);
+sync(CFG.DT, 1);
 cam.update(carState, CFG.DT);
 gfx.updateSun(carState.position);
 gfx.render(CFG.DT, carState.speedPct);
 last = performance.now();
 requestAnimationFrame(frame);
 
-window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, carState, build };
+window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, carState, build, advance, get cars() { return cars; } };

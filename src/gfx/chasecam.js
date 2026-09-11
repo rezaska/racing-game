@@ -62,8 +62,14 @@ export class ChaseCam {
     this.pos.lerp(desired, k(C.TAU_POS, dt));
 
     // Never let the camera sink through a crest. Mandatory with 13% grades.
-    const ground = t3.surfaceAt(car.s - back, 0, this._f);
-    this.pos.y = Math.max(this.pos.y, ground.y + 1.7);
+    // A hard max() is C0 but not C1: on the frame it engages, the camera's
+    // motion switches discontinuously from its own damped path to the raw
+    // terrain profile behind the car, and on a sustained climb it engages and
+    // releases over and over. That reads as shake. Softplus blends across
+    // GROUND_SOFT metres instead, so the floor is felt before it is hit.
+    const floor = t3.surfaceAt(car.s - back, 0, this._f).y + C.GROUND_CLEAR;
+    const over = (this.pos.y - floor) / C.GROUND_SOFT;
+    if (over < 12) this.pos.y = floor + C.GROUND_SOFT * Math.log1p(Math.exp(over));
 
     // Look-ahead samples the TRACK, rather than differentiating the camera.
     // This is what makes a corner readable before you are in it.
@@ -89,8 +95,15 @@ export class ChaseCam {
     this.roll += (rollT - this.roll) * k(C.TAU_ROLL, dt);
 
     this.camera.position.copy(this.pos);
-    this.camera.up.set(Math.sin(this.roll), Math.cos(this.roll), 0);
+    // Roll about the camera's OWN view axis, not about world Z. An up vector of
+    // (sin r, cos r, 0) is a screen-space roll only while the camera happens to
+    // face along Z; a quarter of the way round a course it faces along X, where
+    // the same vector tilts the horizon in pitch instead and the whole frame
+    // pumps up and down through every corner. Negated to match what the up
+    // vector did at the start line, which is where it was dialled in.
+    this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookAt);
+    this.camera.rotateZ(-this.roll);
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();

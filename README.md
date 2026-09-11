@@ -102,6 +102,24 @@ cannot silently break race logic without a test failing.
 node test/sim.test.mjs
 ```
 
+### Testing the thing a screenshot cannot see
+
+Judder only exists in the relationship between consecutive frames, so every
+still of a stuttering game looks perfect. `test/smooth.test.mjs` drives the
+real page in headless Chrome at display rates that do not divide the 60 Hz
+simulation rate, and measures where the car lands on screen each frame. The
+metric is the second difference of its pixel position: steady drift cancels,
+jitter does not.
+
+It is the only check here that can catch a class of bug this project kept
+shipping — one that is invisible to the sim tests and to screenshots alike.
+Without render interpolation it measures 6-8 px of jitter per frame; with it,
+under a fifth of a pixel.
+
+```sh
+node test/smooth.test.mjs   # needs Chrome
+```
+
 ### The road is a number
 
 A course is a seeded shuffle of straights, sweepers and S-bends. That list

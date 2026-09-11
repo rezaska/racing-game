@@ -244,5 +244,7 @@ export const CFG = {
     LOOKAHEAD_MIN: 12,
     LOOKAHEAD_MAX: 55,
     ROLL_MAX: 0.045,
+    GROUND_CLEAR: 1.0,      // metres the camera keeps above the road behind it
+    GROUND_SOFT: 0.5,       // blend width for that floor; 0 would be a hard max
   },
 };
