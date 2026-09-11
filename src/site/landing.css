@@ -18,6 +18,12 @@
 
 * { box-sizing: border-box; }
 
+/* Any rule that sets `display` on an element toggled with the `hidden`
+   attribute silently defeats the UA's `[hidden] { display: none }`.
+   `.countdown` is `display: grid`, so GO never left the screen -- it sat at
+   the tail of its fade for the whole race. */
+[hidden] { display: none !important; }
+
 html { scroll-behavior: smooth; }
 
 body {
@@ -256,6 +262,15 @@ kbd {
   from { opacity: 0; transform: scale(1.35); }
   40% { opacity: 1; }
   to { opacity: 0.15; transform: scale(1); }
+}
+/* GO gets a shorter fade of its own. The countdown ends 0.6 s after it
+   appears, so the shared 0.7 s pop would be cut off mid-fade at the green
+   light; this one is already at zero by the time the race starts. */
+.countdown.go { animation: go 0.58s ease-out forwards; }
+@keyframes go {
+  from { opacity: 0; transform: scale(1.4); }
+  25% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.05); }
 }
 
 .results {

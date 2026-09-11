@@ -42,6 +42,7 @@ export class Hud {
       const label = n > 0 ? String(n) : 'GO';
       if (this.count.textContent !== label) {
         this.count.textContent = label;
+        this.count.classList.toggle('go', n <= 0);
         // Restart the CSS animation on each tick.
         this.count.style.animation = 'none';
         void this.count.offsetWidth;

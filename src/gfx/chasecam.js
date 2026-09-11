@@ -63,7 +63,7 @@ export class ChaseCam {
 
     // Never let the camera sink through a crest. Mandatory with 13% grades.
     const ground = t3.surfaceAt(car.s - back, 0, this._f);
-    this.pos.y = Math.max(this.pos.y, ground.y + 1.1);
+    this.pos.y = Math.max(this.pos.y, ground.y + 1.7);
 
     // Look-ahead samples the TRACK, rather than differentiating the camera.
     // This is what makes a corner readable before you are in it.
@@ -71,7 +71,7 @@ export class ChaseCam {
       C.LOOKAHEAD_S * car.velocity.length(), C.LOOKAHEAD_MIN, C.LOOKAHEAD_MAX,
     );
     const la = t3.surfaceAt(car.s + ahead, 0, this._f);
-    const target = new THREE.Vector3(la.x, la.y + 1.4, la.z).lerp(car.position, 0.3);
+    const target = new THREE.Vector3(la.x, la.y + C.LOOK_UP, la.z).lerp(car.position, 0.3);
     this.lookAt.lerp(target, k(C.TAU_LOOK, dt));
 
     this.shake = Math.max(0, this.shake - dt * 2.5);

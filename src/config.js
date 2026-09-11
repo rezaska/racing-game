@@ -198,8 +198,14 @@ export const CFG = {
   },
 
   render: {
-    FOV_MIN: 58,
-    FOV_MAX: 86,
+    // Narrower than it was (58/86). An 86 deg vertical FOV is 118 deg across a
+    // 16:9 frame, and at 7 m that reads as a lens jammed against the bumper --
+    // the car looms and the edges of the frame smear. Pulling the camera back
+    // and narrowing the lens together keeps the car the same size on screen
+    // (7.7% of frame width at speed, against 8.1% before) while removing the
+    // distortion, which is what "too close" actually looks like.
+    FOV_MIN: 54,
+    FOV_MAX: 72,
     NEAR: 0.5,
     FAR: 1500,
     SHADOW_MAP: 2048,
@@ -223,10 +229,17 @@ export const CFG = {
     TAU_LOOK: 0.18,
     TAU_FOV: 0.35,
     TAU_ROLL: 0.25,
-    BACK: 5.3,
-    BACK_SPEED: 1.5,
-    UP: 1.62,
-    UP_SPEED: 0.28,
+    // Metres behind and above the car: BACK + BACK_SPEED * speedPct, so the
+    // camera eases out as the car accelerates. 7.4 -> 9.1 m back and
+    // 2.45 -> 2.85 m up. At the old 5.3/1.62 the camera sat level with the
+    // roofline of a 1.22 m car about one car length behind it, so the car
+    // itself hid the road you were about to drive on.
+    BACK: 7.4,
+    BACK_SPEED: 1.7,
+    UP: 2.45,
+    UP_SPEED: 0.40,
+    LOOK_UP: 1.9,           // height of the look-at point above the road; it
+                            // rises with the camera, or the horizon sinks
     LOOKAHEAD_S: 1.15,      // seconds of travel to look ahead
     LOOKAHEAD_MIN: 12,
     LOOKAHEAD_MAX: 55,
