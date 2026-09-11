@@ -46,6 +46,134 @@ function normalise(root) {
 // A wheel is: low to the ground, well off the centre line, and small relative
 // to the car. Group whatever matches into four quadrants and give each its own
 // pivot, so it can spin and steer regardless of where the mesh origin sits.
+// Split a merged mesh into body + wheels by connected component.
+//
+// Plenty of downloaded cars arrive as a single mesh with a single material --
+// Sketchfab's FBX conversion does this routinely. The parts are merged but not
+// WELDED, so the wheels are still separate islands of geometry and can be
+// recovered: flood-fill the triangles, then keep the islands that look like
+// wheels (thin along X, circular in YZ, low, outboard) and lift them onto their
+// own pivots.
+function splitMergedMesh(mesh) {
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  const index = geo.index;
+  if (!index || !pos) return null;
+
+  const nv = pos.count;
+  const parent = new Int32Array(nv);
+  for (let i = 0; i < nv; i++) parent[i] = i;
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const uni = (a, b) => { a = find(a); b = find(b); if (a !== b) parent[b] = a; };
+  const ia = index.array;
+  for (let i = 0; i < ia.length; i += 3) { uni(ia[i], ia[i + 1]); uni(ia[i + 1], ia[i + 2]); }
+
+  // Bounds per component, and the whole car.
+  const comp = new Map();
+  const whole = { mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] };
+  for (let v = 0; v < nv; v++) {
+    const r = find(v);
+    let c = comp.get(r);
+    if (!c) { c = { mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] }; comp.set(r, c); }
+    for (let k = 0; k < 3; k++) {
+      const q = pos.array[v * 3 + k];
+      if (q < c.mn[k]) c.mn[k] = q;
+      if (q > c.mx[k]) c.mx[k] = q;
+      if (q < whole.mn[k]) whole.mn[k] = q;
+      if (q > whole.mx[k]) whole.mx[k] = q;
+    }
+  }
+  const carLen = Math.max(whole.mx[2] - whole.mn[2], whole.mx[0] - whole.mn[0]);
+  const carH = whole.mx[1] - whole.mn[1];
+  const carW = whole.mx[0] - whole.mn[0];
+
+  const wheelRoots = new Set();
+  for (const [root, c] of comp) {
+    const sx = c.mx[0] - c.mn[0];
+    const sy = c.mx[1] - c.mn[1];
+    const sz = c.mx[2] - c.mn[2];
+    const cy = (c.mx[1] + c.mn[1]) / 2;
+    const cx = (c.mx[0] + c.mn[0]) / 2;
+    const round = Math.abs(sy - sz) < Math.max(sy, sz) * 0.3;   // circular in YZ
+    const thin = sx < Math.max(sy, sz) * 0.75;                  // thin along the axle
+    const low = cy < whole.mn[1] + carH * 0.45;
+    const outboard = Math.abs(cx - (whole.mx[0] + whole.mn[0]) / 2) > carW * 0.12;
+    const sized = sy > carLen * 0.04 && sy < carLen * 0.30;
+    if (round && thin && low && outboard && sized) wheelRoots.add(root);
+  }
+  if (wheelRoots.size < 2) return null;
+
+  // Assign each wheel triangle to a quadrant.
+  const midX = (whole.mx[0] + whole.mn[0]) / 2;
+  const midZ = (whole.mx[2] + whole.mn[2]) / 2;
+  const buckets = new Map();
+  const bodyTris = [];
+  for (let i = 0; i < ia.length; i += 3) {
+    const root = find(ia[i]);
+    if (!wheelRoots.has(root)) { bodyTris.push(i); continue; }
+    const c = comp.get(root);
+    const cx = (c.mx[0] + c.mn[0]) / 2;
+    const cz = (c.mx[2] + c.mn[2]) / 2;
+    const key = `${cx > midX ? 'r' : 'l'}${cz > midZ ? 'b' : 'f'}`;
+    if (!buckets.has(key)) buckets.set(key, { tris: [], mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] });
+    const bk = buckets.get(key);
+    bk.tris.push(i);
+    for (let k = 0; k < 3; k++) { if (c.mn[k] < bk.mn[k]) bk.mn[k] = c.mn[k]; if (c.mx[k] > bk.mx[k]) bk.mx[k] = c.mx[k]; }
+  }
+  if (buckets.size < 2) return null;
+
+  // Rebuild a geometry from a list of triangle starts, optionally recentred.
+  const build = (tris, centre) => {
+    const g = new THREE.BufferGeometry();
+    const map = new Map();
+    const idxOut = [];
+    const attrs = {};
+    for (const name of Object.keys(geo.attributes)) attrs[name] = [];
+    for (const t of tris) {
+      for (let k = 0; k < 3; k++) {
+        const v = ia[t + k];
+        let ni = map.get(v);
+        if (ni === undefined) {
+          ni = map.size;
+          map.set(v, ni);
+          for (const name of Object.keys(geo.attributes)) {
+            const a = geo.attributes[name];
+            for (let c2 = 0; c2 < a.itemSize; c2++) {
+              let val = a.array[v * a.itemSize + c2];
+              if (name === 'position' && centre) val -= centre[c2];
+              attrs[name].push(val);
+            }
+          }
+        }
+        idxOut.push(ni);
+      }
+    }
+    for (const name of Object.keys(geo.attributes)) {
+      g.setAttribute(name, new THREE.Float32BufferAttribute(attrs[name], geo.attributes[name].itemSize));
+    }
+    g.setIndex(idxOut);
+    g.computeBoundingSphere();
+    return g;
+  };
+
+  const parentObj = mesh.parent;
+  const wheels = [];
+  for (const [key, bk] of buckets) {
+    const centre = [0, 1, 2].map((k) => (bk.mx[k] + bk.mn[k]) / 2);
+    const wm = new THREE.Mesh(build(bk.tris, centre), mesh.material);
+    wm.castShadow = true;
+    const pivot = new THREE.Group();
+    pivot.rotation.order = 'YXZ';
+    pivot.position.set(centre[0], centre[1], centre[2]);
+    pivot.add(wm);
+    parentObj.add(pivot);
+    wheels.push({ node: pivot, front: key[1] === 'f' });
+  }
+
+  mesh.geometry = build(bodyTris, null);
+  return wheels;
+}
+
 export function findWheels(inst) {
   const named = [];
   inst.traverse((o) => {
@@ -82,6 +210,17 @@ export function findWheels(inst) {
     if (!quads.has(key)) quads.set(key, []);
     quads.get(key).push({ mesh: o, centre: c.clone() });
   });
+
+  if (quads.size < 2) {
+    // Last resort: the car is one merged mesh. Split it by island.
+    let merged = null;
+    inst.traverse((o) => { if (!merged && o.isMesh) merged = o; });
+    if (merged) {
+      const split = splitMergedMesh(merged);
+      if (split && split.length >= 2) return split;
+    }
+    return [];
+  }
 
   const wheels = [];
   for (const [key, items] of quads) {
@@ -154,7 +293,16 @@ export async function loadCarFactory(url) {
         let c = seen.get(m);
         if (!c) { c = m.clone(); seen.set(m, c); }
         if (bodyMats.has(m)) {
-          c.color = new THREE.Color(color);
+          if (c.map) {
+            // Textured bodywork: the livery colour MULTIPLIES the artwork, so
+            // applying it straight crushes a dark paint job to black. Shift the
+            // hue only, and lift the player's car so it reads against the field.
+            const hsl = {};
+            new THREE.Color(color).getHSL(hsl);
+            c.color.setHSL(hsl.h, hsl.s * 0.40, 0.88).multiplyScalar(opts.player ? 1.85 : 1.12);
+          } else {
+            c.color = new THREE.Color(color);
+          }
           if (opts.player && 'clearcoat' in c) c.clearcoat = 1.0;
         }
         return c;

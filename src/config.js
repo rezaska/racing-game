@@ -139,9 +139,13 @@ export const CFG = {
   // Attribution for any third-party asset in use. A CC-BY model requires
   // credit; this is where it gets discharged, and it renders in the footer.
   credits: {
-    car: '',        // e.g. "Cyberpunk car by 4d_Bob (CC BY)"
-    carUrl: '',
+    car: 'Cyberpunk car by 4d_Bob (CC BY)',
+    carUrl: 'https://sketchfab.com/3d-models/cyberpunk-car-b4301ff99d214d16a7a43708a5866bf0',
   },
+
+  // Default car model. ?car=<url> overrides it; ?car=none forces the built-in
+  // procedural car. Falls back to procedural if the file will not load.
+  carModel: 'cars/cyberpunk_car.glb',
 
   // --- look. Everything here is live-editable via ?art=1 ---
   art: {

@@ -122,18 +122,20 @@ async function boot() {
   await nextFrame();
   gfx.applyRoadTextures(buildRoadTextures(gfx.renderer));
 
-  // ?car=<url>, or ?car=ferrari for the three.js sample model.
+  // Car model: config default, overridden by ?car=<url>, disabled by ?car=none.
   const carParam = params.get('car');
-  if (carParam) {
+  const url = carParam === 'none' ? null
+    : carParam === 'ferrari'
+      ? 'https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb'
+      : (carParam || CFG.carModel);
+  if (url) {
     setProgress(0.25, 'loading car model');
     await nextFrame();
-    const url = carParam === 'ferrari'
-      ? 'https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb'
-      : carParam;
     try {
       makeCar = await loadCarFactory(url);
       spinWheels = updateModelWheels;
     } catch (err) {
+      // Never let a missing model take the whole page down.
       console.warn('car model failed to load, using the built-in one:', err);
     }
   }

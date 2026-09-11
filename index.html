@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VANISHING POINT</title>
-<meta name="description" content="A 3D racing game built for the browser. No engine, no art assets, no build step — every texture, model and road generated in code.">
+<meta name="description" content="A 3D racing game built for the browser. No engine, no build step — the road, sky, terrain and scenery are all generated in code.">
 <link rel="modulepreload" href="./vendor/three/three.module.js">
 <link rel="modulepreload" href="./vendor/three/three.core.js">
 <link rel="stylesheet" href="./src/site/landing.css">
@@ -39,7 +39,7 @@
 
   <header id="hero">
     <h1>Vanishing<span>Point</span></h1>
-    <p class="tagline">A racing game that runs in a browser tab.<br>No engine. No art assets. No build step.</p>
+    <p class="tagline">A racing game that runs in a browser tab.<br>No engine, no build step, and a world generated in code.</p>
     <button id="start" type="button">Press start</button>
     <p class="hint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>&uarr;</kbd> throttle &middot; <kbd>&darr;</kbd> brake &middot; <kbd>Shift</kbd> boost &middot; <kbd>Space</kbd> drift &middot; <kbd>R</kbd> new road &middot; <kbd>M</kbd> mute</p>
     <a class="scroll" href="#story">How it was made</a>
@@ -47,14 +47,14 @@
 
   <main id="story">
     <section class="lede">
-      <p>Every road you drive is generated from a number in the URL. Nothing here
-      was downloaded — the tarmac, the cars, the trees and the sky are all built
-      in code the moment the page loads.</p>
+      <p>Every road you drive is generated from a number in the URL. The tarmac,
+      the sky, the terrain and the trees are all built in code the moment the
+      page loads — no textures, no heightmaps, nothing downloaded but the car.</p>
     </section>
 
     <section class="facts">
       <dl>
-        <div><dt>0</dt><dd>art assets. No textures, no models, no fonts.</dd></div>
+        <div><dt>1</dt><dd>art asset: the car. Road, sky, terrain and trees are generated.</dd></div>
         <div><dt>0</dt><dd>build steps. Plain ES modules, served as files.</dd></div>
         <div><dt>1</dt><dd>dependency: three.js, vendored so it runs offline.</dd></div>
         <div><dt>15</dt><dd>cars on a grid you start at the back of.</dd></div>
@@ -94,6 +94,11 @@
       great deal of the typing, the measuring and the debugging is not. The
       interesting part was never the volume of code. It was knowing which
       questions to ask of it — and checking the answers.</p>
+
+      <p>The car arrived as a single merged mesh, which normally means its
+      wheels cannot turn. They are recovered by flood-filling the geometry:
+      merged models are rarely <em>welded</em>, so each wheel survives as its
+      own island of triangles and can be lifted onto a pivot of its own.</p>
     </section>
 
     <footer>

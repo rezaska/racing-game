@@ -1,7 +1,8 @@
 # VANISHING POINT
 
-A 3D racing game that runs in a browser tab. No engine, no art assets, no build
-step — every texture, model, road and sky is generated in code at load.
+A 3D racing game that runs in a browser tab. No engine and no build step. The
+road, sky, terrain and scenery are all generated in code at load; the only
+downloaded asset is the car model.
 
 **Live:** https://rezaska.github.io/racing-game/
 
@@ -41,13 +42,18 @@ shared by copying the link.
 | --- | --- |
 | `#seed=1234` | pick a course; the same seed always builds the same road |
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
-| `?car=<url>` | load the cars from any glTF/GLB instead of the built-in model |
+| `?car=<url>` | load the cars from any glTF/GLB |
+| `?car=none` | force the built-in procedural car |
 | `?play=1` | skip the title screen |
 | `?warp=20` | run the simulation forward before the first frame (for stills) |
 | `?shadow=512` | smaller shadow map, for software rendering |
 | `?post=0` | disable post-processing |
 
-## Using your own car model
+## Car models
+
+The cars use a downloaded model by default, set by `carModel` in `config.js`.
+`?car=<url>` swaps it for another, `?car=none` falls back to the procedural car
+that ships in `src/gfx/carmodel.js`.
 
 ```
 ?car=cars/mycar.glb
@@ -60,10 +66,11 @@ steering.
 
 What a model needs:
 
-- **Wheels as separate meshes.** Named `*_fl/_fr/_rl/_rr` ideally, but failing
-  that they are found geometrically — low to the ground, outboard, small and
-  roundish — so unhelpful names like `Circle.003` are fine. Wheels *merged into
-  the body mesh* cannot be found by anything and will not turn.
+- **Wheels that can be separated.** Named `*_fl/_fr/_rl/_rr` ideally; failing
+  that they are found geometrically, and failing *that* a single merged mesh is
+  split by connected component — most merged models are merged but not welded,
+  so the wheels survive as separate islands of geometry. Only a model whose
+  wheel vertices are genuinely welded to the body defeats it.
 - **Under ~30k triangles** if every car uses it; a hero model for the player
   alone can be much heavier.
 - **A body material** to recolour per livery. Matched by name (`body`, `paint`,
@@ -162,6 +169,9 @@ Two previous takes on the same repo, both playable:
 - `hill-climb` — 2D side-scrolling hill-climb racer with spring suspension
 
 ## Credits
+
+Car model: [Cyberpunk car by 4d_Bob](https://sketchfab.com/3d-models/cyberpunk-car-b4301ff99d214d16a7a43708a5866bf0),
+licensed CC BY.
 
 Built by one person with Claude as a collaborator. The design decisions, art
 direction and judgement about what was worth building are mine; much of the
