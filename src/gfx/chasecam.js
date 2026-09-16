@@ -32,6 +32,8 @@ export class ChaseCam {
     this.started = false;
     this._f = {};
     this._v = new THREE.Vector3();
+    this._tmp = new THREE.Vector3();
+    this._lead = new THREE.Vector3();
   }
 
   // car: { position: Vector3, velocity: Vector3, s, speedPct, lateralG }
@@ -43,7 +45,24 @@ export class ChaseCam {
       this.started = true;
     }
 
-    this.anchor.lerp(car.position, k(C.TAU_ANCHOR, dt));
+    // Lead compensation.
+    //
+    // Exponential smoothing tracking a target moving at constant velocity does
+    // not converge on it: it settles a fixed distance behind, v * tau. Two of
+    // these filters run in series here -- the anchor chasing the car, then the
+    // camera chasing a point offset from the anchor -- so at 35 m/s they
+    // together parked the camera 5.6 m further back than BACK and BACK_SPEED
+    // ask for. Measured: 14.85 m against a nominal 9.25 m at 126 km/h. The
+    // config numbers described a stationary car and nothing else.
+    //
+    // Feeding the target's velocity forward by its own tau cancels that error.
+    // LEAD is deliberately short of 1: some fall-back under acceleration is a
+    // good speed cue, and this keeps it bounded and intentional rather than an
+    // artifact that grows with speed.
+    const lead = this._lead.copy(car.velocity).multiplyScalar(C.LEAD);
+    this.anchor.lerp(
+      this._tmp.copy(car.position).addScaledVector(lead, C.TAU_ANCHOR),
+      k(C.TAU_ANCHOR, dt));
 
     // Follow the direction of travel, not the car's yaw. During a drift this
     // shows the car sideways on screen instead of rotating the whole world.
@@ -64,6 +83,7 @@ export class ChaseCam {
       this.anchor.y + up,
       this.anchor.z + Math.cos(this.yaw) * back,
     );
+    desired.addScaledVector(lead, C.TAU_POS);   // the second filter, same story
     this.pos.lerp(desired, k(C.TAU_POS, dt));
 
     // Never let the camera sink through a crest. Mandatory with 13% grades.

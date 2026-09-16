@@ -236,12 +236,15 @@ export const CFG = {
   render: {
     // Narrower than it was (58/86). An 86 deg vertical FOV is 118 deg across a
     // 16:9 frame, and at 7 m that reads as a lens jammed against the bumper --
-    // the car looms and the edges of the frame smear. Pulling the camera back
-    // and narrowing the lens together keeps the car the same size on screen
-    // (7.7% of frame width at speed, against 8.1% before) while removing the
-    // distortion, which is what "too close" actually looks like.
+    // the car looms and the edges of the frame smear.
+    //
+    // Measured, because the arithmetic for this was got wrong by hand once: the
+    // car spans 21.0% of the frame at rest and 12.0% at 137 km/h. Widening the
+    // lens with speed is the speed cue, so the range is a trade -- FOV_MAX 72
+    // gives a stronger cue and 10.8%, 62 gives a weaker one and 12.7%. Both are
+    // a slider away under Lens in ?art=1.
     FOV_MIN: 54,
-    FOV_MAX: 72,
+    FOV_MAX: 66,
     NEAR: 0.5,
     FAR: 1500,
     SHADOW_MAP: 2048,
@@ -288,6 +291,11 @@ export const CFG = {
     LOOKAHEAD_MIN: 12,
     LOOKAHEAD_MAX: 55,
     ROLL_MAX: 0.045,
+    // How much of the smoothing filters' steady-state lag to cancel. At 0 the
+    // camera falls further and further behind the faster the car goes, which is
+    // what it used to do; at 1 it holds BACK exactly at any speed and loses the
+    // sense that acceleration pushes it away. See chasecam.js.
+    LEAD: 0.8,
     GROUND_CLEAR: 1.0,      // metres the camera keeps above the road behind it
     GROUND_SOFT: 0.5,       // blend width for that floor; 0 would be a hard max
   },

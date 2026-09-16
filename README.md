@@ -106,6 +106,28 @@ cannot silently break race logic without a test failing.
 node test/sim.test.mjs
 ```
 
+### A camera that sits where you put it
+
+Exponential smoothing chasing a target that is moving at a constant velocity
+does not converge on it. It settles a fixed distance behind, `v * tau`, and the
+chase camera runs two of these in series — the anchor chasing the car, then the
+camera chasing a point offset from the anchor. At 126 km/h they together parked
+it **14.85 m** back against the 9.25 m `BACK` and `BACK_SPEED` ask for.
+
+So the camera numbers described a stationary car and nothing else, and every
+value tuned through them was wrong at racing speed. Feeding the target's own
+velocity forward by its tau cancels the error; `LEAD` is deliberately short of
+1, because some fall-back under acceleration is a good speed cue and this keeps
+it bounded rather than growing with speed.
+
+The test for it drives a synthetic car at a constant speed straight into the
+real `ChaseCam`, because a real race never holds a steady speed — the field is
+bumping constantly and frame-to-frame acceleration never drops below about
+2 m/s². It runs the same stations twice, with the compensation off and on, so
+track curvature cancels: **+67% uncompensated, +11% with it**. The first of
+those two numbers is asserted as well, so the check cannot quietly stop testing
+anything.
+
 ### The title screen is a landscape
 
 The menu sits over the game, but not over a demo lap: no cars are drawn, the

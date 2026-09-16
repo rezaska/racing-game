@@ -589,4 +589,4 @@ gfx.render(CFG.DT, carState.speedPct);
 last = performance.now();
 requestAnimationFrame(frame);
 
-window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, menuCam, carState, build, advance, get cars() { return cars; } };
+window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, menuCam, carState, build, advance, CFG, get cars() { return cars; } };

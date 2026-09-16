@@ -66,6 +66,59 @@ function rpc(ws, method, params = {}) {
   });
 }
 
+// Does the camera sit where the config says it does?
+//
+// Exponential smoothing tracking a target moving at constant velocity settles a
+// fixed distance behind it, v * tau, and two of these run in series in the chase
+// camera. Uncompensated they parked it 14.85 m back at 126 km/h against a
+// nominal 9.25 m -- so BACK and BACK_SPEED described a stationary car and
+// nothing else, and every number tuned through them lied at racing speed.
+const CAMERA_LAG = `(() => {
+  const g = window.__game;
+  const V = g.gfx.camera.position.constructor;
+  const t3 = g.t3, cam = g.cam, C = g.CFG.camera;
+
+  // A synthetic car moving at a constant speed along the centreline, driven
+  // straight into the real ChaseCam. A real race never holds a steady speed --
+  // the field is being bumped constantly, and the frame-to-frame acceleration
+  // never drops below about 2 m/s^2 -- so the steady-state error this is about
+  // cannot be isolated from inside one.
+  const run = (lead, speed) => {
+    const keep = C.LEAD;
+    C.LEAD = lead;
+    cam.started = false;
+    const st = { position: new V(), velocity: new V(), s: 0,
+                 speedPct: speed / (g.CFG.car.MAX_SPEED * g.CFG.world.U), lateralG: 0 };
+    let s0 = 200;
+    const place = () => {
+      const f = t3.surfaceAt(s0, 0, {});
+      st.position.set(f.x, f.y, f.z);
+      st.velocity.set(-Math.sin(f.yaw) * speed, 0, -Math.cos(f.yaw) * speed);
+      st.s = s0;
+    };
+    place();
+    let worst = 0;
+    const nominal = Math.hypot(C.BACK + C.BACK_SPEED * st.speedPct,
+                               C.UP + C.UP_SPEED * st.speedPct);
+    for (let i = 0; i < 900; i++) {
+      s0 += speed / 60;
+      place();
+      cam.update(st, 1 / 60);
+      // Let both filters settle before believing anything.
+      if (i < 300) continue;
+      worst = Math.max(worst, (g.gfx.camera.position.distanceTo(st.position) - nominal) / nominal);
+    }
+    C.LEAD = keep;
+    return { worst, nominal };
+  };
+
+  // Identical stations both times, so track curvature cancels out of the
+  // comparison and what is left is the compensation.
+  const off = run(0, 38);
+  const on = run(C.LEAD, 38);
+  return JSON.stringify({ off: off.worst, on: on.worst, nominal: on.nominal, lead: C.LEAD });
+})()`;
+
 // Runs in the page. Drives the shipped loop, not a reimplementation of it.
 const MEASURE = `(() => {
   const g = window.__game;
@@ -194,6 +247,18 @@ try {
     check(`${m.hz} Hz display against a 60 Hz sim`,
       m.rms < LIMIT_RMS && m.worst < LIMIT_WORST, px);
   }
+
+  // Last, deliberately: this one drives the car up to racing speed, and leaving
+  // it there would change the conditions the steadiness figures above are
+  // measured under.
+  const lagRaw = await rpc(ws, 'Runtime.evaluate', { expression: CAMERA_LAG, returnByValue: true });
+  const lag = JSON.parse(lagRaw.result.value);
+  console.log('\n== Camera sits where the config says ==');
+  check('uncompensated smoothing does lag, so the test has something to catch',
+    lag.off > 0.3, `+${(lag.off * 100).toFixed(0)}% at LEAD 0`);
+  check('lead compensation holds the configured distance at 137 km/h',
+    lag.on < 0.12,
+    `+${(lag.on * 100).toFixed(0)}% against ${lag.nominal.toFixed(2)}m nominal, LEAD ${lag.lead}`);
   ws.close();
 } finally {
   chrome.kill();
