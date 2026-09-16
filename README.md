@@ -42,7 +42,8 @@ shared by copying the link.
 | --- | --- |
 | `#seed=1234` | pick a course; the same seed always builds the same road |
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
-| `?car=<url>` | load the cars from any glTF/GLB |
+| `?car=<url>` | re-skin the whole field, player included, from any glTF/GLB |
+| `?playercar=<url>` | change only the player's car |
 | `?car=none` | force the built-in procedural car |
 | `?fps=0` | remove the 60 fps cap and present at the display's refresh rate |
 | `?play=1` | skip the title screen |
@@ -102,6 +103,47 @@ cannot silently break race logic without a test failing.
 ```sh
 node test/sim.test.mjs
 ```
+
+### Models from the wild
+
+The player and the field drive different cars, because with one shared model
+the only thing separating you from fourteen opponents is a brightness
+multiplier, which is not enough to find yourself at speed.
+
+Downloaded models rarely drop straight in, and the two here failed in opposite
+ways. The opponents' car came as a single merged mesh, so its wheels are
+recovered by flood-filling the geometry — merged models are rarely *welded*, so
+each wheel survives as its own island of triangles. The player's car had named,
+separate wheels and a proper suspension hierarchy, and still needed three fixes:
+
+- **Its materials were invisible to the loader.** Every one declared its
+  colours and textures only inside `KHR_materials_pbrSpecularGlossiness`, which
+  three.js removed in r165 — so the car loaded flat white. A large share of
+  Sketchfab's back catalogue is authored this way.
+- **A baked shadow quad drove the scale.** Models often ship a flat shadow
+  plane, wider than the car by design. Measuring the whole scene measured the
+  shadow — 10 units against a 4.8 unit car — and shrank the car to a quarter
+  size. Nothing flat is part of a car body, so flat meshes are now excluded
+  from the measurement and hidden.
+- **It faced backwards**, with a 180° turn baked into its root bone. Where an
+  author names the wheels, the file already answers this: the front pair has to
+  end up at -z, because that is the direction of travel.
+
+`tools/glb-specgloss.mjs` handles the first, offline and with no dependencies —
+PNG is decoded and re-encoded against `zlib`, because a project with no build
+step should not need one to maintain its assets either.
+
+```sh
+node tools/glb-specgloss.mjs in.glb out.glb --strip clearcoat,car_shadow
+```
+
+The conversion cannot be done with factors alone, and this is the part worth
+knowing: in the specular workflow **a metal has a black diffuse and carries its
+paint in the specular map**. Reading base colour off the diffuse texture — the
+obvious thing — gives a black car. It walks the textures pixel by pixel with the
+Khronos conversion instead, recovering base colour, metalness and roughness. One
+extra rule on top: a transparent material is never a metal, or tinted glass
+solves as 0.92 metallic and renders as a chrome windscreen.
 
 ### Sixty frames a second, on purpose
 

@@ -136,16 +136,25 @@ export const CFG = {
     COUNTDOWN: 3.6,
   },
 
-  // Attribution for any third-party asset in use. A CC-BY model requires
-  // credit; this is where it gets discharged, and it renders in the footer.
-  credits: {
-    car: 'Cyberpunk car by 4d_Bob (CC BY)',
-    carUrl: 'https://sketchfab.com/3d-models/cyberpunk-car-b4301ff99d214d16a7a43708a5866bf0',
-  },
+  // Attribution for every third-party asset in use. CC-BY requires credit and
+  // requires modifications to be indicated; this is where both are discharged,
+  // and it renders in the page footer.
+  credits: [
+    { what: 'Player car', name: 'Fictional supercar - V12 Goblin by ollitei (CC BY)',
+      url: 'https://sketchfab.com/3d-models/fictional-supercar-v12-goblin-0a20e49ad5774d778567cb5c3f345786',
+      note: 'converted to metallic-roughness; baked shadow and clearcoat shell removed' },
+    { what: 'Opponent cars', name: 'Cyberpunk car by 4d_Bob (CC BY)',
+      url: 'https://sketchfab.com/3d-models/cyberpunk-car-b4301ff99d214d16a7a43708a5866bf0' },
+  ],
 
-  // Default car model. ?car=<url> overrides it; ?car=none forces the built-in
-  // procedural car. Falls back to procedural if the file will not load.
+  // Car models. The player drives a different car from the field -- with one
+  // shared model the only thing separating you from fourteen opponents is a
+  // brightness multiplier, which is not enough to find yourself at speed.
+  // ?car=<url> replaces the field, ?playercar=<url> replaces yours, and
+  // either set to "none" falls back to the built-in procedural car. A model
+  // that will not load falls back to it too, rather than taking the page down.
   carModel: 'cars/cyberpunk_car.glb',
+  playerModel: 'cars/v12_goblin.glb',
 
   // --- look. Everything here is live-editable via ?art=1 ---
   art: {

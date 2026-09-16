@@ -17,26 +17,76 @@ const WHEEL_MATCH = /wheel|tyre|tire|rim/i;
 const FRONT_MATCH = /_f[lr]\b|front|_fl|_fr/i;
 const NON_BODY = /glass|window|screen|tyre|tire|rubber|light|lamp|chrome|interior|seat|carpet|leather/i;
 
+// The bounding box of the CAR, ignoring flat meshes.
+//
+// Models very often ship a baked contact shadow: a big flat quad lying on the
+// ground under the car. It is bigger than the car by design, so measuring the
+// whole scene measures the shadow -- this model's is 10 units across against a
+// 4.8 unit car, which scaled the car to a quarter of its proper size and left
+// a white rectangle skating along the road. Nothing flat is ever part of a car
+// body, so flat meshes are excluded from the measurement and hidden.
+function carBounds(root) {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  const one = new THREE.Box3();
+  const sz = new THREE.Vector3();
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    one.setFromObject(o);
+    one.getSize(sz);
+    const thinnest = Math.min(sz.x, sz.y, sz.z);
+    const longest = Math.max(sz.x, sz.y, sz.z);
+    if (thinnest < longest * 0.02) { o.visible = false; return; }
+    box.union(one);
+  });
+  return box.isEmpty() ? new THREE.Box3().setFromObject(root) : box;
+}
+
 function normalise(root) {
   // Scale so the model is exactly the length the simulation assumes, sit it on
   // the ground, and centre it laterally.
-  let box = new THREE.Box3().setFromObject(root);
-  const size = box.getSize(new THREE.Vector3());
+  const size = carBounds(root).getSize(new THREE.Vector3());
   if (size.x > size.z) root.rotation.y = Math.PI / 2; // lying across, turn it
   root.updateMatrixWorld(true);
 
-  box = new THREE.Box3().setFromObject(root);
-  const s2 = box.getSize(new THREE.Vector3());
+  const s2 = carBounds(root).getSize(new THREE.Vector3());
   root.scale.setScalar(CFG.car.LENGTH / Math.max(s2.z, 1e-6));
   root.updateMatrixWorld(true);
 
-  const b3 = new THREE.Box3().setFromObject(root);
+  const b3 = carBounds(root);
   const c3 = b3.getCenter(new THREE.Vector3());
   root.position.x -= c3.x;
   root.position.z -= c3.z;
   root.position.y -= b3.min.y;
   root.updateMatrixWorld(true);
   return root;
+}
+
+// Which end is the front?
+//
+// Nothing in a mesh says so, and a model exported from a package with the
+// opposite forward axis arrives backwards -- this one has a 180 degree turn
+// baked into its root bone, so it drove down the road facing its pursuers.
+// Where the author named the wheels, though, the answer is already in the file:
+// the front pair must end up at -z, because that is the direction of travel.
+function faceForward(root, wheels) {
+  if (!wheels || !wheels.byName) return;
+  const p = new THREE.Vector3();
+  let front = 0, frontN = 0, rear = 0, rearN = 0;
+  for (const w of wheels) {
+    w.node.getWorldPosition(p);
+    if (w.front) { front += p.z; frontN++; } else { rear += p.z; rearN++; }
+  }
+  if (!frontN || !rearN) return;
+  if (front / frontN <= rear / rearN) return;   // already pointing the right way
+  root.rotation.y += Math.PI;
+  root.updateMatrixWorld(true);
+  const b = carBounds(root);
+  const c = b.getCenter(new THREE.Vector3());
+  root.position.x -= c.x;
+  root.position.z -= c.z;
+  root.position.y -= b.min.y;
+  root.updateMatrixWorld(true);
 }
 
 // Wheels by name where the model provides them, and by GEOMETRY where it does
@@ -177,14 +227,23 @@ function splitMergedMesh(mesh) {
 export function findWheels(inst) {
   const named = [];
   inst.traverse((o) => {
-    if (!o.isMesh && !o.isGroup) return;
+    // Any node, not just meshes and groups. glTF nodes that have children load
+    // as plain Object3D, where `isGroup` is undefined -- so a model that names
+    // its wheels properly, on exactly the nodes built to be rotated, was being
+    // skipped and sent down the geometric-guess path instead.
+    if (o === inst) return;
     if (!WHEEL_MATCH.test(o.name || '')) return;
     if (o.parent && WHEEL_MATCH.test(o.parent.name || '')) return;
     named.push(o);
   });
   if (named.length >= 3) {
     for (const n of named) n.rotation.order = 'YXZ';
-    return named.map((n) => ({ node: n, front: FRONT_MATCH.test(n.name || '') }));
+    const out = named.map((n) => ({ node: n, front: FRONT_MATCH.test(n.name || '') }));
+    // Only wheels identified by NAME carry real front/rear information. The
+    // geometric path below defines "front" as whichever pair sits at -z, which
+    // makes it useless as evidence of which way the car points.
+    out.byName = true;
+    return out;
   }
 
   inst.updateMatrixWorld(true);
@@ -314,6 +373,7 @@ export async function loadCarFactory(url) {
     normalise(inst);
 
     const wheels = findWheels(inst);
+    faceForward(inst, wheels);
     g.userData = { wheels, spinAngle: 0, fromModel: true };
     return g;
   };

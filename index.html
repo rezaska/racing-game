@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VANISHING POINT</title>
 <meta name="description" content="A 3D racing game built for the browser. No engine, no build step — the road, sky, terrain and scenery are all generated in code.">
+
 <link rel="modulepreload" href="./vendor/three/three.module.js">
 <link rel="modulepreload" href="./vendor/three/three.core.js">
 <link rel="stylesheet" href="./src/site/landing.css">
@@ -54,7 +55,7 @@
 
     <section class="facts">
       <dl>
-        <div><dt>1</dt><dd>art asset: the car. Road, sky, terrain and trees are generated.</dd></div>
+        <div><dt>2</dt><dd>art assets, both cars. Road, sky, terrain and trees are generated.</dd></div>
         <div><dt>0</dt><dd>build steps. Plain ES modules, served as files.</dd></div>
         <div><dt>1</dt><dd>dependency: three.js, vendored so it runs offline.</dd></div>
         <div><dt>15</dt><dd>cars on a grid you start at the back of.</dd></div>
@@ -95,16 +96,26 @@
       interesting part was never the volume of code. It was knowing which
       questions to ask of it — and checking the answers.</p>
 
-      <p>The car arrived as a single merged mesh, which normally means its
-      wheels cannot turn. They are recovered by flood-filling the geometry:
-      merged models are rarely <em>welded</em>, so each wheel survives as its
-      own island of triangles and can be lifted onto a pivot of its own.</p>
+      <p>The opponents' car arrived as a single merged mesh, which normally
+      means its wheels cannot turn. They are recovered by flood-filling the
+      geometry: merged models are rarely <em>welded</em>, so each wheel survives
+      as its own island of triangles and can be lifted onto a pivot of its own.</p>
+
+      <p>The player's car had the opposite problem. Its wheels were named and
+      separate, but every one of its materials declared its colours through a
+      glTF extension that three.js dropped support for — so it loaded as a
+      featureless white blob, with a baked shadow quad so much wider than the
+      car that it drove the scale calculation and shrank the whole thing to a
+      quarter size. The colour could not simply be read off the diffuse map
+      either: in the workflow that model was authored in, a metal has a
+      <em>black</em> diffuse and carries its paint in the specular map, so the
+      obvious fix produces a black car. It is converted offline, pixel by pixel.</p>
     </section>
 
     <footer>
       <a href="https://github.com/rezaska/racing-game">Source on GitHub</a>
-      <span data-credit></span>
       <span>Built in the browser, for the browser.</span>
+      <div class="credits" data-credit></div>
     </footer>
   </main>
 

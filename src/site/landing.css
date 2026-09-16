@@ -200,6 +200,18 @@ kbd {
   color: var(--ink-dim);
 }
 #story footer a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line); }
+/* Attribution gets its own full-width block rather than being squeezed into a
+   space-between row: a CC-BY credit has to stay legible, and it carries a note
+   about how each asset was modified. */
+#story footer .credits {
+  flex-basis: 100%;
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1.4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.72rem;
+}
 
 /* ---------- HUD ---------- */
 

@@ -36,6 +36,9 @@ let race, t3, road, scenery, rails, hills, cars;
 // Swappable car source: procedural by default, any glTF via ?car=<url>.
 let makeCar = buildCarModel;
 let spinWheels = updateWheels;
+// The player's car is a separate model from the field's, so it needs a factory
+// of its own; it falls back to whatever the field is using.
+let makePlayerCar = buildCarModel;
 const shadowTex = contactShadowTexture();
 const sound = new Sound();
 
@@ -84,7 +87,7 @@ function build(seed) {
   // shapes with a rim, not as bright spots competing with the player's car.
   const liveries = ['#7a4a52', '#4a5a7a', '#7a6a44', '#4a7a5e', '#63487a', '#7a5240', '#40707a', '#7a4470'];
   cars = {
-    player: makeCar(CFG.art.playerColor, { player: true }),
+    player: makePlayerCar(CFG.art.playerColor, { player: true }),
     group: [],
     ai: race.traffic.cars.map((c, i) => makeCar(liveries[i % liveries.length])),
   };
@@ -128,21 +131,38 @@ async function boot() {
   await nextFrame();
   gfx.applyRoadTextures(buildRoadTextures(gfx.renderer));
 
-  // Car model: config default, overridden by ?car=<url>, disabled by ?car=none.
-  const carParam = params.get('car');
-  const url = carParam === 'none' ? null
-    : carParam === 'ferrari'
-      ? 'https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb'
-      : (carParam || CFG.carModel);
-  if (url) {
-    setProgress(0.25, 'loading car model');
+  // Car models: config defaults, overridden by ?car= (the field) and
+  // ?playercar= (yours), disabled with "none".
+  const resolve = (param, fallback) => {
+    const v = params.get(param);
+    if (v === 'none') return null;
+    if (v === 'ferrari') return 'https://raw.githubusercontent.com/mrdoob/three.js/r180/examples/models/gltf/ferrari.glb';
+    return v || fallback;
+  };
+  const fieldUrl = resolve('car', CFG.carModel);
+  // ?car= on its own re-skins the whole field, the player included, which is
+  // what you want when auditioning a single model.
+  const playerUrl = resolve('playercar', params.get('car') ? fieldUrl : CFG.playerModel);
+
+  const urls = [...new Set([fieldUrl, playerUrl].filter(Boolean))];
+  if (urls.length) {
+    setProgress(0.25, urls.length > 1 ? 'loading car models' : 'loading car model');
     await nextFrame();
-    try {
-      makeCar = await loadCarFactory(url);
+    const loaded = new Map();
+    for (const u of urls) {
+      try {
+        loaded.set(u, await loadCarFactory(u));
+      } catch (err) {
+        // Never let a missing model take the whole page down.
+        console.warn(`car model failed to load, using the built-in one: ${u}`, err);
+      }
+    }
+    if (loaded.size) {
+      makeCar = loaded.get(fieldUrl) || makeCar;
+      // ?playercar=none means the procedural car ON PURPOSE, so an explicit
+      // null must not fall through to the field's model.
+      makePlayerCar = playerUrl === null ? buildCarModel : (loaded.get(playerUrl) || makeCar);
       spinWheels = updateModelWheels;
-    } catch (err) {
-      // Never let a missing model take the whole page down.
-      console.warn('car model failed to load, using the built-in one:', err);
     }
   }
 
@@ -163,7 +183,13 @@ async function boot() {
   // Diagnostic hook: says which car source is live and whether its wheels were
   // found, which is the thing that silently fails with a downloaded model.
   const w = cars?.player?.userData?.wheels?.length ?? 0;
-  window.__ready = { car: makeCar === buildCarModel ? 'procedural' : 'gltf', wheels: w };
+  window.__ready = {
+    car: makeCar === buildCarModel ? 'procedural' : 'gltf',
+    player: makePlayerCar === buildCarModel ? 'procedural' : 'gltf',
+    sameModel: makePlayerCar === makeCar,
+    wheels: w,
+    playerTris: countTriangles(cars?.player),
+  };
   if (params.has('probe')) document.title = `READY car=${window.__ready.car} wheels=${w}`;
 }
 
@@ -209,17 +235,32 @@ function photoMode() {
   document.body.classList.add('playing');
 }
 
-// Third-party asset credit, wherever it comes from.
+// Third-party asset credit. CC-BY asks for the author and, where the asset was
+// altered, for that to be said -- so `note` is rendered, not just stored.
 {
-  const text = params.get('credit') || CFG.credits.car;
   const el = document.querySelector('[data-credit]');
-  if (el && text) {
-    const url = CFG.credits.carUrl;
-    el.innerHTML = url ? `Car model: <a href="${url}">${text}</a>` : `Car model: ${text}`;
+  if (el) {
+    el.innerHTML = CFG.credits.map((c) => {
+      const name = c.url ? `<a href="${c.url}">${c.name}</a>` : c.name;
+      return `<span>${c.what}: ${name}${c.note ? ` — ${c.note}` : ''}</span>`;
+    }).join('');
   }
 }
 
 window.addEventListener('resize', () => gfx.resize());
+
+// Triangles in a built car, for the readiness probe: the whole point of giving
+// the player a different model is that it is a heavier one, so the number is
+// worth being able to see.
+function countTriangles(obj) {
+  let n = 0;
+  obj?.traverse?.((o) => {
+    if (!o.isMesh || !o.geometry) return;
+    const g = o.geometry;
+    n += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  });
+  return Math.round(n);
+}
 
 const f = {};
 const carState = {
