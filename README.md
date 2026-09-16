@@ -106,6 +106,20 @@ cannot silently break race logic without a test failing.
 node test/sim.test.mjs
 ```
 
+### What the speed blur is for
+
+The radial blur stands in for the world rushing past the camera. The car is not
+rushing past the camera — it is bolted to it, so its true motion blur is zero,
+and it is also the one thing the driver has to be able to read. It used to be
+smeared along with everything else, because the blur radiated from the middle of
+the screen and the car sits well below that.
+
+The blur is now centred on the **focus of expansion** — the point the camera is
+travelling toward, where optical flow is zero and the smear must have no length.
+The middle of the screen is only the same thing on a straight; through a corner
+the camera moves one way and looks another. The car is masked out with a radius
+taken from its own projected size, so it stays sharp at any camera distance.
+
 ### A camera that sits where you put it
 
 Exponential smoothing chasing a target that is moving at a constant velocity

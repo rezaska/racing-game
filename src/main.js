@@ -294,6 +294,13 @@ function countTriangles(obj) {
   return Math.round(n);
 }
 
+// What the speed blur radiates from and what it protects. Null on the title
+// screen, where there is no car and nothing is rushing past anything.
+function blurSubject() {
+  return race.state === 'attract' ? null
+    : { velocity: carState.velocity, car: cars.player };
+}
+
 const f = {};
 const carState = {
   position: new THREE.Vector3(),
@@ -481,7 +488,7 @@ if (bench > 0) {
     cullChunks(road, st, t3.ds); cullChunks(scenery, st, t3.ds); cullChunks(rails, st, t3.ds);
     cam.update(carState, CFG.DT);
     gfx.updateSun(carState.position);
-    gfx.render(CFG.DT, carState.speedPct);
+    gfx.render(CFG.DT, carState.speedPct, blurSubject());
     gl.finish();
     times.push(performance.now() - t0);
   }
@@ -572,7 +579,7 @@ function frame(now) {
     pl.slip, pl.offroad, race.state === 'racing' || race.state === 'countdown',
   );
   hud.update(race);
-  gfx.render(ft, carState.speedPct);
+  gfx.render(ft, carState.speedPct, blurSubject());
   gfx.adapt(performance.now() - t0);
 }
 await boot();
@@ -585,7 +592,7 @@ runWarp();
 sync(CFG.DT, 1);
 cam.update(carState, CFG.DT);
 gfx.updateSun(carState.position);
-gfx.render(CFG.DT, carState.speedPct);
+gfx.render(CFG.DT, carState.speedPct, blurSubject());
 last = performance.now();
 requestAnimationFrame(frame);
 

@@ -21,6 +21,9 @@ const GradeShader = {
     uTime: { value: 0 },
     uBlur: { value: 0 },
     uCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    uCar: { value: new THREE.Vector2(0.5, 0.5) },
+    uCarR: { value: 0 },
+    uAspect: { value: 1 },
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -30,7 +33,8 @@ const GradeShader = {
     uniform sampler2D tDiffuse;
     uniform vec3 uShadow, uHighlight;
     uniform float uGrade, uVignette, uGrain, uTime, uBlur;
-    uniform vec2 uCenter;
+    uniform float uCarR, uAspect;
+    uniform vec2 uCenter, uCar;
     varying vec2 vUv;
 
     float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -39,11 +43,20 @@ const GradeShader = {
       vec2 dir = vUv - uCenter;
       vec3 col = texture2D(tDiffuse, vUv).rgb;
 
-      if (uBlur > 0.001) {
+      // Keep the car out of it. This blur stands in for the world rushing past
+      // the camera, and the car is not rushing past the camera -- it is bolted
+      // to it. Its true motion blur is zero, and it is also the one thing the
+      // driver has to be able to read. Distances are corrected for aspect so
+      // the protected area is a circle on screen rather than an ellipse.
+      vec2 d = vec2(vUv.x - uCar.x, (vUv.y - uCar.y) / uAspect);
+      float keep = smoothstep(uCarR * 0.75, uCarR * 2.0, length(d));
+      float blur = uBlur * keep;
+
+      if (blur > 0.001) {
         vec3 sum = col;
         for (int i = 1; i < 8; i++) {
           float t = float(i) / 7.0;
-          sum += texture2D(tDiffuse, vUv - dir * t * uBlur).rgb;
+          sum += texture2D(tDiffuse, vUv - dir * t * blur).rgb;
         }
         col = sum / 8.0;
       }
@@ -107,12 +120,22 @@ export class Post {
     u.uGrain.value = art.grain;
   }
 
-  render(dt, speedPct, vanishing) {
+  render(dt, speedPct, focus) {
     const u = this.grade.uniforms;
     u.uTime.value += dt;
-    // Only in the top half of the speed range, or it reads as a smear.
-    u.uBlur.value = THREE.MathUtils.smoothstep(speedPct, 0.35, 1.0) * 0.075;
-    if (vanishing) u.uCenter.value.copy(vanishing);
+    // No subject means nothing is rushing past the camera, so there is nothing
+    // to smear. Without this the title screen inherits whatever speed the last
+    // race ended at -- leaving a flat-out run put the menu behind a full-strength
+    // radial blur, because the value it reads from is only refreshed while
+    // racing.
+    // Otherwise: only in the top half of the speed range, or it reads as a smear.
+    u.uBlur.value = focus ? THREE.MathUtils.smoothstep(speedPct, 0.35, 1.0) * 0.075 : 0;
+    if (focus) {
+      u.uCenter.value.copy(focus.center);
+      u.uCar.value.copy(focus.car);
+      u.uCarR.value = focus.radius;
+      u.uAspect.value = focus.aspect;
+    }
     this.composer.render(dt);
   }
 }

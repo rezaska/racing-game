@@ -149,9 +149,50 @@ export class Renderer3D {
     }
   }
 
-  render(dt = 1 / 60, speedPct = 0) {
+  // Where the radial speed blur radiates from, and what it must leave alone.
+  //
+  // The centre is the focus of expansion: the point the camera is travelling
+  // toward, which is where optical flow is zero and therefore where the smear
+  // has to have no length. The middle of the screen is only the same thing on a
+  // straight; through a corner the camera is moving one way and looking another,
+  // and blurring about the wrong point smears the apex.
+  #blurFocus(subject) {
+    const cam = this.camera;
+    const f = this._focus || (this._focus = {
+      center: new THREE.Vector2(0.5, 0.5), car: new THREE.Vector2(0.5, 0.5),
+      radius: 0, aspect: 1,
+      _a: new THREE.Vector3(), _b: new THREE.Vector3(), _r: new THREE.Vector3(),
+    });
+    cam.updateMatrixWorld();
+
+    const speed = subject.velocity.length();
+    if (speed > 1) {
+      f._a.copy(cam.position).addScaledVector(subject.velocity, 60 / speed).project(cam);
+      // Clamped: on a tight corner the focus of expansion leaves the frame
+      // entirely, and an unbounded centre turns the blur into a wild skew.
+      f.center.set(
+        THREE.MathUtils.clamp(f._a.x * 0.5 + 0.5, 0.15, 0.85),
+        THREE.MathUtils.clamp(f._a.y * 0.5 + 0.5, 0.15, 0.85),
+      );
+    } else {
+      f.center.set(0.5, 0.5);
+    }
+
+    f._a.copy(subject.car.position).project(cam);
+    f.car.set(f._a.x * 0.5 + 0.5, f._a.y * 0.5 + 0.5);
+    // Radius from the car's own size, projected: a fixed UV radius would
+    // protect half the screen when the camera is close and nothing when it is
+    // far. Camera-right, so it is measured across the frame.
+    f._r.setFromMatrixColumn(cam.matrixWorld, 0);
+    f._b.copy(subject.car.position).addScaledVector(f._r, CFG.car.LENGTH * 0.5).project(cam);
+    f.radius = Math.abs(f._b.x - f._a.x) * 0.5;
+    f.aspect = cam.aspect;
+    return f;
+  }
+
+  render(dt = 1 / 60, speedPct = 0, subject = null) {
     this.sky.mesh.position.copy(this.camera.position);
-    if (this.post) this.post.render(dt, speedPct);
+    if (this.post) this.post.render(dt, speedPct, subject ? this.#blurFocus(subject) : null);
     else this.renderer.render(this.scene, this.camera);
   }
 }
