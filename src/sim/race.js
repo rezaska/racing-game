@@ -65,8 +65,11 @@ export class Race {
       // cannot be knocked off the road by its own opponents.
       this.attractT += dt;
       const t3 = this.t3;
-      this.attractS += 3400 * CFG.world.U * dt;
-      if (this.attractS > t3.length * 0.72) this.attractS = 0;
+      // The title screen is a landscape now, not a demo lap: no cars are drawn,
+      // so this station drives a cinematic camera rather than a car, and the
+      // traffic is left parked because nothing can see it.
+      this.attractS += CFG.menuCam.SPEED * dt;
+      if (this.attractS > t3.length * 0.86) this.attractS = 0;
       const n = Math.sin(this.attractT * 0.45) * 0.4 * t3.halfWidth;
       const f = t3.surfaceAt(this.attractS, n, {});
       const p = this.player;
@@ -80,7 +83,6 @@ export class Race {
       p.vpsi = f.yaw;
       p.beta = 0;
       p.segmentRef = this.track.findSegment(p.z);
-      this.traffic.update(dt, p);
       return;
     }
 

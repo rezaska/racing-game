@@ -60,7 +60,7 @@ body {
      it -- the whole point of the hero is that it is live, not a screenshot. */
   background:
     radial-gradient(70% 42% at 50% 44%, rgba(10, 7, 16, 0.62) 0%, rgba(10, 7, 16, 0.22) 60%, rgba(10, 7, 16, 0) 100%),
-    linear-gradient(180deg, rgba(10, 7, 16, 0.5) 0%, rgba(10, 7, 16, 0) 26%, rgba(10, 7, 16, 0) 74%, rgba(10, 7, 16, 0.62) 100%);
+    linear-gradient(180deg, rgba(10, 7, 16, 0.5) 0%, rgba(10, 7, 16, 0) 26%, rgba(10, 7, 16, 0) 68%, rgba(10, 7, 16, 0.8) 100%);
   transition: opacity 0.6s ease, visibility 0.6s;
 }
 
@@ -183,6 +183,13 @@ body.playing { overflow: hidden; }
   cursor: pointer;
 }
 .controls-back:hover { color: var(--ink); }
+
+/* The title camera now looks straight down a sunlit road, and its specular
+   highlight runs right through where these two sit. A scrim alone cannot win
+   against a blown highlight, so the small type carries its own shadow. */
+#hero .tagline,
+.seedline,
+#hero .scroll { text-shadow: 0 1px 16px rgba(10, 7, 16, 0.95), 0 0 4px rgba(10, 7, 16, 0.8); }
 
 .seedline {
   margin-top: 1.5rem;

@@ -43,6 +43,7 @@ shared by copying the link.
 | `#seed=1234` | pick a course; the same seed always builds the same road |
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
 | `?play=1` | skip the menu and start a race |
+| `?shot=menu` | strip the overlays without starting a race, to photograph the title |
 | `?car=<url>` | re-skin the whole field, player included, from any glTF/GLB |
 | `?playercar=<url>` | change only the player's car |
 | `?car=none` | force the built-in procedural car |
@@ -104,6 +105,16 @@ cannot silently break race logic without a test failing.
 ```sh
 node test/sim.test.mjs
 ```
+
+### The title screen is a landscape
+
+The menu sits over the game, but not over a demo lap: no cars are drawn, the
+traffic is not even simulated, and the camera is a separate one composed around
+the road rather than around a car that is not there. It runs a long lens, so the
+sun sits large and the road compresses into a band heading for the vanishing
+point the piece is named after. Height, lateral offset, look-ahead and roll all
+drift on periods that share no common multiple, so the move never visibly
+repeats while someone reads the menu. `?shot=menu` photographs it.
 
 ### Finishing
 

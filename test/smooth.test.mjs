@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { paceDivisor, refreshHz } from '../src/gfx/pace.js';
+import { CFG } from '../src/config.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 8231;
@@ -103,6 +104,17 @@ const check = (name, ok, detail) => {
 };
 
 // --- Frame pacing, pure and headless ---------------------------------------
+// The chase camera read FOV_MIN out of CFG.camera, where it does not exist.
+// `undefined + n` is NaN, every NaN comparison is false, so the guard that
+// writes the camera's field of view never fired -- the speed ramp was dead for
+// as long as it had existed and nothing said a word.
+console.log('\n== Camera lens ==');
+check('the chase camera reads FOV from a block that has it',
+  Number.isFinite(CFG.render.FOV_MIN) && Number.isFinite(CFG.render.FOV_MAX),
+  `${CFG.render.FOV_MIN}-${CFG.render.FOV_MAX} deg`);
+check('FOV widens with speed rather than staying put',
+  CFG.render.FOV_MAX > CFG.render.FOV_MIN);
+
 console.log('\n== Frame pacing ==');
 check('60 Hz display renders every vsync', paceDivisor(60, 60) === 1);
 check('120 Hz display renders every second vsync', paceDivisor(120, 60) === 2);

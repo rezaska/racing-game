@@ -22,7 +22,12 @@ export class ChaseCam {
     this.pos = new THREE.Vector3();
     this.yaw = 0;
     this.roll = 0;
-    this.fov = C.FOV_MIN;
+    // CFG.render, not CFG.camera. Read from the wrong block this was undefined,
+    // which made the first `this.fov += ...` NaN -- and every NaN comparison is
+    // false, so the guard below never fired and the chase camera never once set
+    // the camera's field of view. The speed ramp has been dead the whole time;
+    // the lens sat at whatever the renderer constructed it with.
+    this.fov = CFG.render.FOV_MIN;
     this.shake = 0;
     this.started = false;
     this._f = {};
@@ -104,6 +109,9 @@ export class ChaseCam {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookAt);
     this.camera.rotateZ(-this.roll);
+    // Guard against NaN explicitly rather than relying on a comparison: a NaN
+    // here is what hid the bug above for so long.
+    if (!Number.isFinite(this.fov)) this.fov = CFG.render.FOV_MIN;
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();

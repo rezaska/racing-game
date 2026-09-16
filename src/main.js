@@ -18,6 +18,7 @@ import { Hud } from './gfx/hud.js';
 import { mountArtPanel } from './gfx/artpanel.js';
 import { paceDivisor, refreshHz } from './gfx/pace.js';
 import { mountMenu } from './site/menu.js';
+import { MenuCam } from './gfx/menucam.js';
 
 function seedFromHash() {
   const m = /seed=([^&]+)/.exec(location.hash);
@@ -110,10 +111,12 @@ function build(seed) {
 
   cam.t3 = t3;
   cam.started = false;
+  menuCam.setTrack(t3);
   location.hash = `seed=${seed}`;
 }
 
 const cam = new ChaseCam(gfx.camera, null);
+const menuCam = new MenuCam(gfx.camera, null);
 const hud = new Hud(document.getElementById('hud'));
 
 const loadEl = document.getElementById('loading');
@@ -252,7 +255,10 @@ if (params.has('art')) {
 // Photo mode: strip every overlay so stills show the render alone.
 // shot=1 keeps the HUD; shot=clean strips it too, for art-direction stills.
 function photoMode() {
-  const clean = params.get('shot') === 'clean';
+  const mode = params.get('shot');
+  // ?shot=menu strips the overlays but does NOT start a race, which is the only
+  // way to photograph the title screen's own camera.
+  const clean = mode === 'clean' || mode === 'menu';
   const ids = clean ? ['hero', 'story', 'hud', 'loading'] : ['hero', 'story', 'loading'];
   for (const id of ids) {
     const el = document.getElementById(id);
@@ -369,6 +375,14 @@ function mixAngle(a, b, t) {
 // `alpha` is how far this frame falls between the last two simulation steps.
 function sync(dt, alpha) {
   const a = snapPrev, b = snapCur;
+  // Title screen: a landscape, with nothing on the road. Hiding the cars also
+  // means there is nothing to place, so the per-frame work goes with them.
+  const attract = race.state === 'attract';
+  if (cars.hidden !== attract) {
+    cars.group.forEach((c) => { c.visible = !attract; });
+    cars.hidden = attract;
+  }
+  if (attract) return;
   const s = mix(a.s, b.s, alpha);
   const n = mix(a.n, b.n, alpha);
   const psi = mixAngle(a.psi, b.psi, alpha);
@@ -507,13 +521,27 @@ function advance(ft, held) {
 
   const dt = Math.max(1 / 240, ft);
   sync(dt, acc / CFG.DT);
-  const st = race.player.s / t3.ds;
+
+  // Two cameras, only one ever live. The title screen is a landscape shot of
+  // the road, so it runs off its own station rather than off a car that is not
+  // being drawn.
+  const attract = race.state === 'attract';
+  if (attract) {
+    menuCam.update(race.attractS, dt);
+    // The chase camera must re-anchor when the race starts, or it eases in from
+    // wherever the title screen happened to leave the view.
+    cam.started = false;
+  } else {
+    cam.update(carState, dt);
+  }
+
+  const anchor = attract ? gfx.camera.position : carState.position;
+  const st = (attract ? race.attractS : race.player.s) / t3.ds;
   cullChunks(road, st, t3.ds);
   cullChunks(scenery, st, t3.ds);
   cullChunks(rails, st, t3.ds);
-  cam.update(carState, dt);
-  if (hills) hills.position.set(carState.position.x, 0, carState.position.z);
-  gfx.updateSun(carState.position);
+  if (hills) hills.position.set(anchor.x, 0, anchor.z);
+  gfx.updateSun(anchor);
 }
 
 function frame(now) {
@@ -549,7 +577,7 @@ function frame(now) {
 }
 await boot();
 if (params.has('shot')) photoMode();
-if (params.has('play') || params.has('shot')) enterRace();
+if (params.has('play') || (params.has('shot') && params.get('shot') !== 'menu')) enterRace();
 runWarp();
 // Draw one frame synchronously before handing over to rAF. Without this a
 // headless capture gets nothing: the boot's timer yields consume the virtual
@@ -561,4 +589,4 @@ gfx.render(CFG.DT, carState.speedPct);
 last = performance.now();
 requestAnimationFrame(frame);
 
-window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, carState, build, advance, get cars() { return cars; } };
+window.__game = { get race() { return race; }, get t3() { return t3; }, gfx, cam, menuCam, carState, build, advance, get cars() { return cars; } };

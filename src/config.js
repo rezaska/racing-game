@@ -211,6 +211,28 @@ export const CFG = {
     gradeStrength: 0.45,
   },
 
+  // The title screen. A landscape, not a race: no cars, a long lens, and a slow
+  // move whose components drift on periods that share no common multiple, so it
+  // never visibly loops while someone reads the menu.
+  menuCam: {
+    SPEED: 15,              // metres per second along the road
+    HEIGHT: 3.4,            // metres above the surface
+    RISE: 1.1,              // +/- of that
+    RISE_PERIOD: 11.0,      // seconds
+    SIDE: 0.62,             // lateral drift, in half-widths
+    SIDE_PERIOD: 17.0,
+    LOOKAHEAD: 150,         // metres; far enough that the shot is about the
+                            // vanishing point rather than the tarmac in front
+    AHEAD_SWING: 45,
+    AHEAD_PERIOD: 23.0,
+    LOOK_UP: 2.4,
+    ROLL: 0.012,
+    ROLL_PERIOD: 29.0,
+    // Longer than the game's 54-86. A long lens makes the sun large and
+    // compresses the road into a band, which is the picture this piece is for.
+    FOV: 42,
+  },
+
   render: {
     // Narrower than it was (58/86). An 86 deg vertical FOV is 118 deg across a
     // 16:9 frame, and at 7 m that reads as a lens jammed against the bumper --
