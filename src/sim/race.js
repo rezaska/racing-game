@@ -24,7 +24,9 @@ export class Race {
     this.attractS = 0;
     this.countdown = CFG.race.COUNTDOWN;
     this.elapsed = 0;
+    this.clock = 0;
     this.results = null;
+    this.classified = false;
   }
 
 
@@ -37,7 +39,9 @@ export class Race {
     this.attractT = 0;
     this.attractS = 0;
     this.elapsed = 0;
+    this.clock = 0;
     this.results = null;
+    this.classified = false;
   }
 
   // Leaves attract mode with a clean grid: the demo drive has moved the player
@@ -47,8 +51,10 @@ export class Race {
     this.player = new Vehicle(this.track, this.t3);
     this.traffic = new Traffic(this.track, this.seed, CFG.ai.LIVERIES);
     this.elapsed = 0;
+    this.clock = 0;
     this.countdown = CFG.race.COUNTDOWN;
     this.results = null;
+    this.classified = false;
     this.state = 'countdown';
   }
 
@@ -90,22 +96,47 @@ export class Race {
 
     this.player.segmentRef = this.track.findSegment(this.player.z);
 
+    // Two clocks. `elapsed` is the player's race time and stops the moment they
+    // cross; `clock` keeps running, because the opponents are still out on
+    // track and a finishing time has to be measured against something that
+    // moves. Reading both off `elapsed` gave every car that finished after the
+    // player the identical, frozen time the player crossed on.
+    this.clock += dt;
     if (!this.player.finished) this.elapsed += dt;
     this.player.update(dt, this.state === 'racing' ? input : IDLE, this.traffic);
     this.traffic.update(dt, this.player);
 
-    if (this.player.finished && !this.player.finishTime) this.player.finishTime = this.elapsed;
+    if (this.player.finished && !this.player.finishTime) this.player.finishTime = this.clock;
     for (const car of this.traffic.cars) {
-      if (car.finished && !car.finishTime) car.finishTime = this.elapsed;
+      if (car.finished && !car.finishTime) car.finishTime = this.clock;
     }
-
 
     this.player.place = this.#place();
 
-    if (this.player.finished) {
+    if (this.player.finished && this.state !== 'finished') {
       this.state = 'finished';
+      this.#settleField();
       this.results = this.standings();
     }
+  }
+
+  // The race is not over when the player's race is over -- but nobody wants to
+  // sit and watch for half a minute while the field trails in. The opponents
+  // run on rails, so their remaining laps are simulated as fast as the loop can
+  // turn them over, and the classification is complete by the time the results
+  // panel has faded in. Capped, because a car shoved off the road may never
+  // arrive at all.
+  #settleField() {
+    const dt = CFG.DT;
+    const limit = CFG.race.CLASSIFY_LIMIT / dt;
+    for (let i = 0; i < limit && this.traffic.cars.some((c) => !c.finished); i++) {
+      this.clock += dt;
+      this.traffic.update(dt, this.player);
+      for (const car of this.traffic.cars) {
+        if (car.finished && !car.finishTime) car.finishTime = this.clock;
+      }
+    }
+    this.classified = true;
   }
 
   #entries() {

@@ -23,6 +23,8 @@ const DT = CFG.DT;
 const V_MAX = CFG.car.MAX_SPEED * CFG.world.U;
 function wrap(a) { return Math.atan2(Math.sin(a), Math.cos(a)); }
 
+const IDLE = { left: false, right: false, accel: false, brake: false };
+
 function drive(race) {
   const p = race.player;
   const t3 = race.t3;
@@ -147,6 +149,26 @@ for (const seed of [1234, 42, 777]) {
   ok(worstX < 2.2, `seed ${seed}: never far off the road`, `max |x| ${worstX.toFixed(2)}`);
   ok(race.traffic.cars.every((c) => Number.isFinite(c.z) && Math.abs(c.offset) <= 1.0),
      `seed ${seed}: AI finite and on the road`);
+
+  // The field is fast-forwarded the instant the player crosses, so a complete
+  // classification must already be available with no further stepping.
+  const done = race.standings().filter((r) => r.time !== null);
+  ok(race.classified && done.length === race.fieldSize,
+     `seed ${seed}: the whole field is classified at the flag`,
+     `${done.length}/${race.fieldSize}`);
+
+  // The bug this guards: every car finishing after the player was stamped with
+  // the player's own frozen finishing time, so a whole field shared one time.
+  const times = done.map((r) => r.time);
+  const unique = new Set(times.map((t) => t.toFixed(3)));
+  ok(unique.size === times.length, `seed ${seed}: finishing times are distinct`,
+     `${unique.size} distinct of ${times.length}`);
+  ok(times.every((t, i) => i === 0 || t >= times[i - 1]),
+     `seed ${seed}: classification is ordered by time`);
+  const mine = race.standings().find((r) => r.isPlayer);
+  ok(mine.time !== null && Math.abs(mine.time - race.elapsed) < 1e-6,
+     `seed ${seed}: the player's time is the clock they raced against`,
+     `${mine.time.toFixed(2)}s`);
 }
 
 console.log('\n== Drifting ==');

@@ -42,6 +42,7 @@ shared by copying the link.
 | --- | --- |
 | `#seed=1234` | pick a course; the same seed always builds the same road |
 | `?art=1` | live art-direction panel, with copy-to-clipboard config |
+| `?play=1` | skip the menu and start a race |
 | `?car=<url>` | re-skin the whole field, player included, from any glTF/GLB |
 | `?playercar=<url>` | change only the player's car |
 | `?car=none` | force the built-in procedural car |
@@ -103,6 +104,19 @@ cannot silently break race logic without a test failing.
 ```sh
 node test/sim.test.mjs
 ```
+
+### Finishing
+
+The race is not over when your race is over. Opponents that crossed after the
+player used to be stamped with the player's own frozen finishing time, so a
+whole field shared one time — there are two clocks now, one that stops when you
+cross and one that does not.
+
+Nobody wants to sit and watch the field trail in for half a minute, though, so
+the moment the player takes the flag the opponents are fast-forwarded: they run
+on rails, and simulating their remaining distance costs a few milliseconds once
+rather than making anyone wait. The classification is complete — all fifteen,
+with real times and gaps — by the time the panel has faded in.
 
 ### Models from the wild
 

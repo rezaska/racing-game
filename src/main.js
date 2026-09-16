@@ -9,6 +9,7 @@ import { ChaseCam } from './gfx/chasecam.js';
 import { buildRoadChunks, cullChunks } from './world/roadmesh.js';
 import { buildScenery } from './world/scenery.js';
 import { buildGuardrails, contactShadowTexture, contactShadow } from './world/guardrail.js';
+import { buildFinishLine } from './world/finishline.js';
 import { buildRoadTextures } from './world/textures.js';
 import { Sound } from './audio/sound.js';
 import { buildCarModel, updateWheels } from './gfx/carmodel.js';
@@ -16,6 +17,7 @@ import { loadCarFactory, updateModelWheels } from './gfx/carload.js';
 import { Hud } from './gfx/hud.js';
 import { mountArtPanel } from './gfx/artpanel.js';
 import { paceDivisor, refreshHz } from './gfx/pace.js';
+import { mountMenu } from './site/menu.js';
 
 function seedFromHash() {
   const m = /seed=([^&]+)/.exec(location.hash);
@@ -32,7 +34,7 @@ const canvas = document.getElementById('scene');
 const gfx = new Renderer3D(canvas);
 const input = new Input();
 
-let race, t3, road, scenery, rails, hills, cars;
+let race, t3, road, scenery, rails, hills, cars, finishLine;
 // Swappable car source: procedural by default, any glTF via ?car=<url>.
 let makeCar = buildCarModel;
 let spinWheels = updateWheels;
@@ -80,6 +82,9 @@ function build(seed) {
   if (rails) gfx.scene.remove(rails);
   rails = buildGuardrails(t3, gfx.materials.rail, gfx.materials.post);
   gfx.scene.add(rails);
+  if (finishLine) gfx.scene.remove(finishLine);
+  finishLine = buildFinishLine(t3);
+  gfx.scene.add(finishLine);
   if (!hills) { hills = buildDistantHills(); gfx.scene.add(hills); }
 
   if (cars) cars.group.forEach((c) => gfx.scene.remove(c));
@@ -206,14 +211,35 @@ function enterRace() {
 function leaveRace() {
   race.toAttract();
   document.body.classList.remove('playing');
+  menu.focus();
 }
-document.getElementById('start').addEventListener('click', enterRace);
+// Menu. `newCourse` rebuilds the world but stays in attract, so the new road is
+// the thing you are looking at while you decide whether to race it.
+const menu = mountMenu(document.getElementById('hero'), {
+  onRace: enterRace,
+  onNewCourse: () => {
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    build(seed);
+    menu.setSeed(seed);
+    // Keep the address bar honest: the seed IS the course, and this is what
+    // makes one shareable.
+    history.replaceState(null, '', `#seed=${seed}`);
+  },
+  onToggleSound: () => {
+    sound.start();
+    return !sound.toggleMute();
+  },
+});
+menu.setSeed(seedFromHash());
 addEventListener('keydown', (e) => {
   if (e.code === 'Escape') leaveRace();
   else if (e.code === 'KeyM') sound.toggleMute();
   // Only take over the keyboard once the page is out of the way.
   else if (document.body.classList.contains('playing') && e.code === 'KeyR') {
-    build((Math.random() * 0xffffffff) >>> 0);
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    build(seed);
+    menu.setSeed(seed);
+    history.replaceState(null, '', `#seed=${seed}`);
     race.start();
   }
 });
@@ -470,7 +496,6 @@ let divisor = 1;
 // how steady the camera is -- which is not something a screenshot can show.
 function advance(ft, held) {
   acc += ft;
-  if (race.state === 'attract' && (held.accel || held.brake || held.left || held.right)) enterRace();
 
   let steps = 0;
   while (acc >= CFG.DT && steps < 6) {

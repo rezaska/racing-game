@@ -134,6 +134,11 @@ export const CFG = {
 
   race: {
     COUNTDOWN: 3.6,
+    // SIMULATED seconds the field is given to finish after the player crosses.
+    // Not wall-clock: the opponents are fast-forwarded, so this costs a few
+    // milliseconds once rather than making anyone wait. A car shoved off the
+    // road may never arrive at all, hence a cap.
+    CLASSIFY_LIMIT: 120,
   },
 
   // Attribution for every third-party asset in use. CC-BY requires credit and

@@ -33,7 +33,6 @@
     <div class="pod pod-time"><span>time</span><b data-time>0:00.00</b></div>
     <div class="bar"><i data-progress></i></div>
     <div class="boost" data-boost><b></b><span>boost</span></div>
-    <div class="drift" data-drift>DRIFT</div>
     <div class="countdown" data-countdown hidden>3</div>
     <div class="results" data-results hidden></div>
   </div>
@@ -41,8 +40,29 @@
   <header id="hero">
     <h1>Vanishing<span>Point</span></h1>
     <p class="tagline">A racing game that runs in a browser tab.<br>No engine, no build step, and a world generated in code.</p>
-    <button id="start" type="button">Press start</button>
-    <p class="hint"><kbd>&larr;</kbd><kbd>&rarr;</kbd> steer &middot; <kbd>&uarr;</kbd> throttle &middot; <kbd>&darr;</kbd> brake &middot; <kbd>Shift</kbd> boost &middot; <kbd>Space</kbd> drift &middot; <kbd>R</kbd> new road &middot; <kbd>M</kbd> mute</p>
+
+    <nav id="menu" aria-label="Main menu">
+      <button type="button" data-action="race">Race</button>
+      <button type="button" data-action="course">New course</button>
+      <button type="button" data-action="controls">Controls</button>
+      <button type="button" data-action="sound">Sound <b data-sound>on</b></button>
+    </nav>
+
+    <div class="controls" data-controls hidden>
+      <dl>
+        <div><dt><kbd>&larr;</kbd><kbd>&rarr;</kbd></dt><dd>steer</dd></div>
+        <div><dt><kbd>&uarr;</kbd></dt><dd>throttle</dd></div>
+        <div><dt><kbd>&darr;</kbd></dt><dd>brake</dd></div>
+        <div><dt><kbd>Shift</kbd></dt><dd>boost</dd></div>
+        <div><dt><kbd>Space</kbd></dt><dd>handbrake</dd></div>
+        <div><dt><kbd>R</kbd></dt><dd>new road</dd></div>
+        <div><dt><kbd>M</kbd></dt><dd>mute</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>leave the race</dd></div>
+      </dl>
+      <button type="button" class="controls-back" data-back><kbd>Esc</kbd> back</button>
+    </div>
+
+    <p class="seedline">Course <b data-seed>&mdash;</b></p>
     <a class="scroll" href="#story">How it was made</a>
   </header>
 
